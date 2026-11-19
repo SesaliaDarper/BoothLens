@@ -35,6 +35,7 @@ tests/fixtures/
 tests/qa-data/
 tests/*.png
 tests/*.json
+tests/release-notes.md
 tests/*.py
 tests/*.sh
 tests/IndexRepair/
