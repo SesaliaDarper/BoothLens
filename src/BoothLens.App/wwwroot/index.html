@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>资源库 · BoothLens</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-brand" viewBox="0 0 24 24"><path d="M12 2.5 21.5 8v8L12 21.5 2.5 16V8L12 2.5Z"/><path d="m2.5 8 9.5 5.5L21.5 8M12 13.5v8M7.25 5.25l9.5 5.5"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.4"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.4"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.4"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.2"/><path d="m15 15 4.5 4.5"/></symbol>
+    <symbol id="i-jobs" viewBox="0 0 24 24"><path d="M4 14h4l2 4 4-11 2 7h4"/><rect x="2.5" y="3.5" width="19" height="17" rx="3"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h7m4 0h5M4 17h3m4 0h9"/><circle cx="13" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-6.5 6.5-1 1a3.6 3.6 0 0 1-5-5l3.25-3.25a3.6 3.6 0 0 1 5 0m6.75.25 1-1a3.6 3.6 0 0 1 5 5l-3.25 3.25a3.6 3.6 0 0 1-5 0" transform="rotate(-12 12 12)"/></symbol>
+    <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M13 4h7v7m0-7-9 9m7 0v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5m10.6-.5A8 8 0 0 0 6 6m-1.6 6.5A8 8 0 0 0 18 18"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6ZM14 3v5h4M9 12h6m-6 4h6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M8 4H4v4m12-4h4v4m0 8v4h-4m-12-4v4h4M4 12h16"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#workspace">跳到主内容</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#library" aria-label="BoothLens 资源库">
+        <span class="brand-mark"><svg class="icon" aria-hidden="true"><use href="#i-brand"/></svg></span>
+        <span class="brand-text"><strong>BoothLens</strong><small>资源管理工作台</small></span>
+      </a>
+      <nav class="nav" aria-label="主导航">
+        <a href="#library" data-view="library" aria-current="page"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg><span>资源库</span></a>
+        <a href="#files" data-view="files"><svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg><span>扫描整理</span></a>
+        <a href="#discover" data-view="discover"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span>BOOTH 搜索</span></a>
+        <a href="#jobs" data-view="jobs"><svg class="icon" aria-hidden="true"><use href="#i-jobs"/></svg><span>导入记录</span></a>
+        <a href="#settings" data-view="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>设置</span></a>
+        <a class="nav-secondary" href="#catalog" data-view="catalog"><svg class="icon" aria-hidden="true"><use href="#i-library"/></svg><span>已保存商品</span></a>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span><div><strong>本地工作区</strong><small>封面与索引存储在本机</small></div></div>
+    </aside>
+
+    <div class="workspace" id="workspace" tabindex="-1">
+      <header class="topbar">
+        <div class="breadcrumb"><span>工作台</span><svg class="icon" aria-hidden="true"><use href="#i-right"/></svg><strong id="current-view">资源库</strong></div>
+        <span class="workspace-label"><span class="status-dot" aria-hidden="true"></span>本地资产管理</span>
+      </header>
+
+      <main class="content">
+        <a id="scan-live" class="scan-live" href="#files" role="status" hidden></a>
+        <section id="view-library" aria-labelledby="library-title">
+          <div class="library-heading">
+            <div class="library-title-group"><h1 id="library-title">资源库 <output class="count" id="library-total" aria-label="结果数量" hidden></output></h1><p class="library-caption">让每一份素材，都有迹可循。</p></div>
+            <div class="row-actions"><a class="button subtle" href="#files"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>扫描目录</a><button type="button" class="button primary" id="open-add"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>添加商品</button></div>
+          </div>
+          <div class="library-controls">
+          <div class="section-head library-search">
+            <form class="search-inline" id="library-form" role="search">
+              <label class="sr-only" for="library-query">搜索资源库</label>
+              <div class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="library-query" type="search" placeholder="搜索资源库…" autocomplete="off"><kbd aria-hidden="true">/</kbd></div>
+              <button type="submit" class="button subtle">搜索</button>
+            </form>
+          </div>
+          <div class="resource-toolbar"><label class="select-label" for="library-filter">匹配状态<select id="library-filter"><option value="">全部状态</option><option value="review">待确认</option><option value="unknown">未匹配</option><option value="auto">已匹配</option><option value="error">识别失败</option><option value="offline">离线待识别</option></select></label><button type="button" class="button subtle" id="library-refresh">刷新资源</button></div>
+          <div class="resource-scope"><label class="select-label" for="library-root">素材根目录<select id="library-root"><option value="">全部根目录</option></select></label><button type="button" class="button subtle" id="library-clear">清除筛选</button><p id="library-scope" class="field-note" role="status">当前范围：全部根目录 · 全部分类 · 全部状态</p></div>
+          </div>
+          <nav id="library-categories" class="category-nav" aria-label="资源分类"></nav>
+          <div id="library-results" class="results" aria-live="polite"></div>
+          <nav id="library-pagination" class="pagination" aria-label="资源库分页" hidden></nav>
+        </section>
+
+        <section id="view-files" aria-labelledby="files-title" hidden>
+          <div class="page-head"><h1 id="files-title">扫描整理</h1></div>
+          <p id="roots-message" class="error" role="status" hidden></p>
+          <div class="panel scan-panel">
+            <div class="panel-heading"><span class="tile-icon"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg></span><div><h2>在线扫描</h2><p>填写运行 BoothLens 的电脑上的完整路径；打开页面不会自动扫描。</p></div></div>
+            <form class="scan-form" id="scan-form">
+              <label for="scan-stored-root">已保存的素材根目录</label><select id="scan-stored-root"><option value="">选择根目录或在下方输入路径</option></select>
+              <label for="scan-root">素材目录 / 单个归档路径</label><input id="scan-root" type="text" placeholder="例如 E:\素材库，或单个归档的完整路径" required autocomplete="off" spellcheck="false">
+              <label for="scan-mode">目录识别模式</label><select id="scan-mode"><option value="auto">自动识别（推荐）</option><option value="library">整个资源库（下层为分类目录）</option><option value="category">单个分类（直接子项为资源）</option><option value="asset">单个资源（当前文件夹本身）</option></select>
+              <p class="field-note">不确定目录层级时，先预览结构。</p>
+              <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="button" class="button subtle" id="scan-preview">预览目录结构</button><button type="submit" class="button primary" id="scan-submit"><svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>开始在线扫描</button></div>
+              <div id="scan-preview-result" class="scan-preview-result" aria-live="polite" hidden></div>
+            </form>
+            <div id="scan-result" class="scan-result" role="status" hidden></div>
+            <div id="scan-progress" class="scan-progress" role="status" aria-live="polite" hidden>
+              <div class="scan-progress-head"><strong id="scan-state">尚未开始扫描</strong><div class="row-actions"><button type="button" class="button subtle" id="scan-cancel" hidden>取消扫描</button><button type="button" class="button subtle" id="scan-retry" hidden>重新扫描</button></div></div>
+              <progress id="scan-meter" max="1" value="0" aria-label="容器处理进度"></progress>
+              <div class="scan-counts"><span>发现 <strong id="scan-discovered">0</strong></span><span>已处理 <strong id="scan-processed">0</strong></span><span>已绑定 <strong id="scan-bound">0</strong></span><span>待确认 <strong id="scan-review">0</strong></span><span>未匹配 <strong id="scan-unknown">0</strong></span><span>跳过已绑定/待确认 <strong id="scan-skipped">0</strong></span></div>
+              <p id="scan-current" class="path"></p><p id="scan-error" class="error" hidden></p>
+            </div>
+            <div id="scan-poll-error" class="scan-poll-error" role="alert" hidden><p id="scan-poll-message" class="error"></p><button type="button" class="button subtle" id="scan-status-retry">重试读取状态</button></div>
+          </div>
+          <details class="panel structure-panel" id="structure-panel">
+            <summary id="structure-title">高级：目录结构与修复</summary>
+            <div class="structure-explanation"><p><strong>分类目录</strong>展开为多张卡片；<strong>完整资源</strong>合为一张；<strong>自动判断</strong>清除手动边界。仅重建索引，保留绑定与原文件。</p></div>
+            <button type="button" class="button subtle" id="scan-repair">修复目录结构（不联网）</button>
+            <form id="structure-form" class="stack-form">
+              <label for="structure-root">重建索引的素材根目录</label><select id="structure-root"><option value="">使用上方输入的素材根目录</option></select>
+              <div class="structure-folder-heading"><span class="field-note">从目录列表选择，或直接输入完整路径</span><button type="button" class="button subtle" id="structure-refresh">读取目录列表</button></div><div id="structure-folders" class="structure-folders" aria-live="polite"><p class="field-note">选择根目录后可读取其文件夹列表；读取列表不会扫描或联网。</p></div>
+              <label for="structure-path">需要纠正的文件夹完整路径</label><input id="structure-path" type="text" required autocomplete="off" spellcheck="false" placeholder="填写被误当成资源的分类目录，或被错误拆分的完整资源文件夹">
+              <label for="structure-kind">目录边界</label><select id="structure-kind"><option value="category">分类目录：展开下层资源</option><option value="asset">完整资源：合并内部条目</option><option value="auto">自动判断：清除手动边界</option></select>
+              <p class="field-note">可直接输入未显示为卡片的父文件夹路径。只重建目录索引，保留绑定及候选，原文件不动；不访问 BOOTH。</p>
+              <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary" id="structure-submit">应用边界并离线修复</button></div>
+            </form>
+          </details>
+          <div class="section-head"><div><h2>本地资源 <output class="count" id="files-total" aria-label="结果数量" hidden></output></h2></div><form class="search-inline" id="files-form" role="search"><label class="sr-only" for="files-query">搜索本地资源</label><input id="files-query" type="search" placeholder="资源名称、路径、商品 ID…"><button type="submit" class="button subtle">搜索</button></form></div>
+          <div class="resource-toolbar"><label class="select-label" for="files-filter">匹配状态<select id="files-filter"><option value="">全部状态</option><option value="review">待确认</option><option value="unknown">未匹配</option><option value="auto">已匹配</option><option value="error">识别失败</option><option value="offline">离线待识别</option></select></label><button type="button" class="button subtle" id="files-refresh">刷新资源</button></div>
+          <div class="resource-scope"><label class="select-label" for="files-root">素材根目录<select id="files-root"><option value="">全部根目录</option></select></label><button type="button" class="button subtle" id="files-clear">清除筛选</button><p id="files-scope" class="field-note" role="status">当前范围：全部根目录 · 全部分类 · 全部状态</p></div>
+          <nav id="files-categories" class="category-nav" aria-label="扫描资源分类"></nav>
+          <div id="files-results" class="results" aria-live="polite"></div>
+          <nav id="files-pagination" class="pagination" aria-label="文件列表分页" hidden></nav>
+        </section>
+
+        <section id="view-catalog" aria-labelledby="catalog-title" hidden>
+          <div class="page-head"><div class="section-kicker">商品档案</div><h1 id="catalog-title">已保存商品</h1><p>这里保留 BOOTH 商品目录；本地素材容器在“资源库”中统一管理。</p></div>
+          <div class="section-head"><h2>商品目录 <output class="count" id="catalog-total" hidden></output></h2><form class="search-inline" id="catalog-form" role="search"><label class="sr-only" for="catalog-query">搜索已保存商品</label><input id="catalog-query" type="search" placeholder="商品名、店铺、ID…"><button type="submit" class="button subtle">搜索</button></form></div>
+          <div id="catalog-results" class="results" aria-live="polite"></div><nav id="catalog-pagination" class="pagination" aria-label="商品目录分页" hidden></nav>
+        </section>
+
+        <section id="view-discover" aria-labelledby="discover-title" hidden>
+          <div class="page-head"><div class="section-kicker">发现资源</div><h1 id="discover-title">BOOTH 搜索</h1><p>通过关键词查找 BOOTH 商品，再选择要保存到资源库的条目。</p></div>
+          <div class="panel search-panel">
+            <form class="inline-form" id="discover-form" role="search"><label class="sr-only" for="discover-query">BOOTH 关键词</label><div class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><input id="discover-query" type="search" placeholder="输入商品名、店铺名或关键字…" required autocomplete="off"></div><button type="submit" class="button primary">搜索 BOOTH</button></form>
+            <div class="inline-note"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>搜索结果只显示文字。保存商品时，才会下载一张封面到本机。</div>
+          </div>
+          <div class="section-head"><div><h2>搜索结果 <output class="count" id="discover-total" aria-label="结果数量" hidden></output></h2></div></div>
+          <div id="discover-results" class="results" aria-live="polite"></div>
+        </section>
+
+        <section id="view-jobs" aria-labelledby="jobs-title" hidden>
+          <div class="page-head page-head-row"><div><div class="section-kicker">导入管理</div><h1 id="jobs-title">导入记录</h1><p>在这里查看处理状态、提示信息和输出位置。</p></div><button type="button" class="button subtle" id="refresh-jobs"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>刷新记录</button></div>
+          <div id="jobs-results" class="results" aria-live="polite"></div>
+        </section>
+
+        <section id="view-settings" aria-labelledby="settings-title" hidden>
+          <div class="page-head"><h1 id="settings-title">设置</h1></div>
+          <div class="panel settings-panel">
+            <div class="panel-heading"><div><h2>Unity 桥接</h2><p>安装到工程后，导入窗口会列出已打开的 Editor。</p></div></div>
+            <div class="bridge-help"><div class="row-actions"><a class="button subtle" href="/unity/BoothRelay.cs" download="BoothRelay.cs">下载桥接脚本</a><a class="button subtle" href="/unity/BoothRelay.zip" download="BoothRelay.zip">下载 ZIP</a></div><p class="field-note">放入 <code>Assets/Editor/BoothRelay.cs</code>（旧版直接替换），等待 Unity 编译完成，再刷新工程列表。</p></div>
+            <form id="settings-form" class="stack-form settings-extra">
+              <label for="cookie-header">BOOTH Cookie（仅本次会话，选填）</label><input id="cookie-header" type="password" autocomplete="off" placeholder="粘贴 Cookie 请求头原文；不保存到磁盘">
+              <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary" id="save-settings">保存 Cookie</button></div>
+            </form>
+            <p class="inline-note" id="settings-status" role="status"></p>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog class="dialog" id="add-dialog" aria-labelledby="add-title">
+    <div class="dialog-head"><div><div class="section-kicker">资源库</div><h2 id="add-title">添加资源</h2></div><button type="button" class="icon-button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-body">
+      <div class="segments" aria-label="添加方式"><button type="button" data-add-mode="booth" aria-pressed="true">BOOTH 商品</button><button type="button" data-add-mode="custom" aria-pressed="false">手动建档</button></div>
+      <form id="add-form" class="stack-form">
+        <label for="add-input">商品 ID 或 BOOTH 链接</label><input id="add-input" type="text" placeholder="例如 8962830 或 https://booth.pm/ja/items/8962830" required autocomplete="off" spellcheck="false">
+        <p class="field-note">保存后可在本地文件中将素材与商品绑定。</p>
+        <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary">保存商品</button></div>
+      </form>
+      <form id="custom-form" class="stack-form" hidden>
+        <label for="custom-title">资源名称</label><input id="custom-title" type="text" placeholder="例如 自制表情包" required autocomplete="off">
+        <label for="custom-source">来源链接 <span>选填</span></label><input id="custom-source" type="url" placeholder="https://…" autocomplete="off" spellcheck="false">
+        <label for="custom-image">本地封面 <span>选填</span></label><input id="custom-image" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif">
+        <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary">保存资源</button></div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="dialog detail-dialog" id="detail-dialog" aria-labelledby="detail-title">
+    <div class="dialog-head"><div><div class="section-kicker">资源详情</div><h2 id="detail-title">资源详情</h2></div><button type="button" class="icon-button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-body" id="detail-body" aria-live="polite"></div>
+  </dialog>
+
+  <dialog class="dialog" id="bind-dialog" aria-labelledby="bind-title">
+    <div class="dialog-head"><div><div class="section-kicker">本地文件</div><h2 id="bind-title">绑定资源</h2></div><button type="button" class="icon-button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-body">
+      <p class="dialog-description">把以下文件关联到一条资源记录。</p><p class="path-box" id="bind-path"></p>
+      <form id="bind-form" class="stack-form">
+        <label for="bind-input">资源 ID 或 BOOTH 链接</label><input id="bind-input" type="text" placeholder="输入 BOOTH ID、链接或手动资源的负数 ID" required autocomplete="off" spellcheck="false">
+        <p class="field-note">可从资源详情查看已有资源的 ID。</p>
+        <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary">确认绑定</button></div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="dialog" id="import-dialog" aria-labelledby="import-title">
+    <div class="dialog-head"><div><div class="section-kicker">Unity</div><h2 id="import-title">导入文件</h2></div><button type="button" class="icon-button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+    <div class="dialog-body">
+      <p class="dialog-description">仅导入下方已选择的包文件，不批量复制容器里的说明、PSD 或贴图。导入记录中会显示结果。</p><p class="path-box" id="import-path"></p>
+      <form id="import-form" class="stack-form">
+        <div class="project-heading"><label for="import-project">已打开的 Unity 工程</label><button type="button" class="button subtle" id="import-project-refresh">刷新工程列表</button></div>
+        <select id="import-project" required disabled><option value="">正在确认 Editor 心跳…</option></select>
+        <div id="import-target" class="import-target" role="status" aria-live="polite">正在读取已打开的工程…</div>
+        <p id="import-project-message" class="field-note" role="status"></p>
+        <div id="import-bridge-help" class="bridge-help" hidden><p>在目标工程安装桥接，等待 Unity 编译后刷新。</p><div class="row-actions"><a class="button subtle" href="/unity/BoothRelay.cs" download="BoothRelay.cs">下载桥接脚本</a><a class="button subtle" href="/unity/BoothRelay.zip" download="BoothRelay.zip">下载 ZIP</a></div><p class="field-note">脚本位置：<code>Assets/Editor/BoothRelay.cs</code></p></div>
+        <label for="import-mode">导入方式</label><select id="import-mode"><option value="auto">自动选择</option></select>
+        <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary" id="import-submit" disabled>导入到所选 Editor</button></div>
+      </form>
+    </div>
+  </dialog>
+
+  <div id="notices" class="notices" role="status" aria-live="polite"></div>
+</body>
+</html>

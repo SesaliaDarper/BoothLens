@@ -1,0 +1,52 @@
+# Enable after GitHub workflow scope is configured
+.github/workflows/build.yml
+
+# Build & distributions
+**/bin/
+**/obj/
+release/
+artifacts/
+*.zip
+*.exe
+*.dll
+*.pdb
+
+# Local application state, credentials and downloaded assets
+.env
+.env.*
+!.env.example
+*.sqlite*
+*.db
+*.db-*
+*.log
+data/
+qa-data/
+images/
+local-covers/
+staging/
+**/node_modules/
+**/__pycache__/
+
+# Local diagnostics / real-library fixtures (never publish)
+tests/index-backups/
+tests/current-fixtures/
+tests/container-fixtures/
+tests/fixtures/
+tests/qa-data/
+tests/*.png
+tests/*.json
+tests/*.py
+tests/*.sh
+tests/IndexRepair/
+tests/UnityCompile/
+tests/browser/*.mjs
+!tests/browser/showcase.mjs
+
+# Editors and OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+*.user
+*.suo

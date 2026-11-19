@@ -1,0 +1,124 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using BoothLens.Core;
+using BoothLens.Core.Booth;
+using BoothLens.Core.Data;
+using BoothLens.Core.Library;
+
+var work = Path.Combine(Path.GetTempPath(), "BoothLensStructure-" + Guid.NewGuid().ToString("N"));
+var paths = new AppPaths(Path.Combine(work, "data"));
+var db = new Db(paths.DbPath); db.EnsureSchema();
+var store = new ItemStore(db); var fake = new FakeRemote();
+using var booth = new BoothClient(fake) { ThrottleMs = 0 };
+var catalog = new Catalog(booth, store, paths);
+var library = new ContainerLibrary(db, store, catalog, booth);
+int checks = 0;
+void Check(string name, bool ok) { if (!ok) throw new Exception(name); checks++; Console.WriteLine("PASS " + name); }
+string Dir(params string[] parts) { var p = Path.Combine(new[] { work }.Concat(parts).ToArray()); Directory.CreateDirectory(p); return p; }
+string FileAt(string dir, string name) { var p = Path.Combine(dir, name); File.WriteAllText(p, "fixture"); return p; }
+JsonElement Json(object value) => JsonSerializer.SerializeToElement(value, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+JsonElement Preview(string root, string? mode = null) => Json(library.Preview(root, mode));
+async Task Scan(string root, string? mode = null, bool online = true)
+{
+    library.Start(root, mode, online);
+    for (var i = 0; i < 1000; i++)
+    {
+        var status = library.GetStatus();
+        if (status.State != "running") { if (status.State != "completed") throw new Exception(Json(status).GetRawText()); return; }
+        await Task.Delay(10);
+    }
+    throw new Exception("Scan timeout");
+}
+var root = Dir("MyAssets");
+var avatar = Dir("MyAssets", "Avatars", "Folder Search Preferred");
+var nested = Dir("MyAssets", "Avatars", "Folder Search Preferred", "wrapper", "wrapper");
+FileAt(nested, "UnrelatedPackage.unitypackage");
+var textures = Dir("MyAssets", "Avatars", "Folder Search Preferred", "Textures");
+FileAt(textures, "cover.png");
+var localCover = FileAt(nested, "preview.png");
+var idProduct = Dir("MyAssets", "Clothes", "1234567 Different Name");
+FileAt(idProduct, "clothing.unitypackage"); FileAt(idProduct, "cover.jpg");
+var p = Preview(root);
+Check("generic English library categories discovered", p.GetProperty("resolvedMode").GetString() == "library" && p.GetProperty("discovered").GetInt32() == 2);
+Check("relative category labels preserved", p.GetProperty("files").EnumerateArray().Any(x => x.GetProperty("category").GetString() == "Avatars"));
+Check("local cover ignores texture folders and finds nested preview", p.GetProperty("files").EnumerateArray().Single(x => x.GetProperty("path").GetString() == avatar).GetProperty("localCoverPath").GetString() == localCover);
+await Scan(root);
+Check("folder search remains primary despite unique package", fake.Searches.Any(x => x.Contains("Folder Search Preferred")) && fake.Searches.All(x => !x.Contains("UnrelatedPackage")));
+Check("ID first remotely verified before search", library.Get(idProduct)?.ItemId == 1234567 && fake.ItemRequests == 1 && fake.Searches.All(x => !x.Contains("Different Name")));
+Check("BOOTH binding downloads cover despite available local image", booth.ImageRequestCount == 1 && library.LocalCover(avatar) == localCover && library.Get(idProduct)!.HasLocalCover);
+var original = library.Get(avatar)!;
+var membersBefore = Json(original.Members).GetRawText(); var candidatesBefore = Json(original.Candidates).GetRawText();
+var updatedBefore = original.UpdatedAt; var calls = booth.RequestCount;
+var late = FileAt(nested, "late.unitypackage");
+var newProduct = Dir("MyAssets", "Clothes", "Newly Added"); FileAt(newProduct, "new.unitypackage");
+await Scan(root);
+var skipped = library.Get(avatar)!;
+Check("review and bound resources skipped before member collection", library.GetStatus().Skipped == 2 && skipped.Skipped && library.Get(idProduct)!.Skipped && !skipped.Members.Any(x => x.Path == late));
+Check("skip retains category candidates members and local metadata", Json(skipped.Members).GetRawText() == membersBefore && Json(skipped.Candidates).GetRawText() == candidatesBefore && skipped.Category == "Avatars" && skipped.UpdatedAt == updatedBefore && skipped.LocalCoverPath == localCover);
+Check("shallow root and category rescan detects new resources", library.Get(newProduct) != null && booth.RequestCount == calls + 1);
+library.Retry(avatar); Check("explicit retry flag exposed", library.Get(avatar)!.RetryRequested);
+await Scan(root);
+Check("explicit retry refreshes members and candidates", library.Get(avatar)!.Members.Any(x => x.Path == late) && !library.Get(avatar)!.RetryRequested && !library.Get(avatar)!.Skipped);
+var custom = await catalog.AddCustom("Custom negative identity", null, null, default);
+library.Confirm(avatar, custom.Id); calls = booth.RequestCount;
+var newest = FileAt(nested, "manual-late.unitypackage");
+await Scan(root);
+Check("negative manual IDs are bound and skipped", library.Get(avatar)!.ItemId == custom.Id && library.Get(avatar)!.Skipped && booth.RequestCount == calls && !library.Get(avatar)!.Members.Any(x => x.Path == newest));
+library.Retry(avatar); await Scan(root);
+Check("manual retry refreshes local files without rebinding or network", library.Get(avatar)!.ItemId == custom.Id && library.Get(avatar)!.Members.Any(x => x.Path == newest) && booth.RequestCount == calls);
+Check("registered local cover accessor rejects unknown container", library.LocalCover(Path.Combine(work, "unknown")) == null);
+
+var chinese = Dir("中文根");
+foreach (var category in new[] { "任意汉字甲", "任意汉字乙" })
+foreach (var product in new[] { "产品一", "产品二" }) FileAt(Dir("中文根", category, product), product + ".unitypackage");
+p = Preview(chinese);
+Check("arbitrary Chinese category labels inferred structurally", p.GetProperty("resolvedMode").GetString() == "library" && p.GetProperty("discovered").GetInt32() == 4 && p.GetProperty("files").EnumerateArray().All(x => x.GetProperty("category").GetString() is "任意汉字甲" or "任意汉字乙"));
+var asset = Dir("SingleResource"); FileAt(asset, "a.unitypackage"); FileAt(asset, "b.unitypackage");
+Dir("SingleResource", "Textures"); Dir("SingleResource", "Materials");
+p = Preview(asset);
+Check("root packages and decomposed folders stay one asset", p.GetProperty("resolvedMode").GetString() == "asset" && p.GetProperty("discovered").GetInt32() == 1 && p.GetProperty("files")[0].GetProperty("path").GetString() == asset);
+var wrapper = Dir("Salt"); var wrapperInner = Dir("Salt", "Salt", "Salt");
+Dir("Salt", "Salt", "Salt", "Material"); FileAt(wrapperInner, "Salt.unitypackage");
+p = Preview(wrapper);
+Check("unique nested wrapper chain is one conservative asset", p.GetProperty("resolvedMode").GetString() == "asset" && p.GetProperty("discovered").GetInt32() == 1 && p.GetProperty("files")[0].GetProperty("members").GetArrayLength() == 1);
+var characters = Dir("Root", "Characters"); FileAt(Dir("Root", "Characters", "Single Product"), "one.unitypackage");
+p = Preview(Path.GetDirectoryName(characters)!);
+Check("generic category with single product works", p.GetProperty("resolvedMode").GetString() == "library" && p.GetProperty("files")[0].GetProperty("category").GetString() == "Characters");
+var models = Dir("models"); FileAt(Dir("models", "One Loose Model"), "model.fbx");
+p = Preview(models);
+Check("generic model root handles loose FBX leaf", p.GetProperty("resolvedMode").GetString() == "category" && p.GetProperty("files")[0].GetProperty("path").GetString() == Path.Combine(models, "One Loose Model"));
+var mixed = Dir("Mixed downloads");
+FileAt(Dir("Mixed downloads", "Product A"), "a.unitypackage"); FileAt(Dir("Mixed downloads", "Product B"), "b.unitypackage"); FileAt(mixed, "Loose Product.zip");
+p = Preview(mixed);
+Check("mixed loose archive and product folders remain category", p.GetProperty("resolvedMode").GetString() == "category" && p.GetProperty("discovered").GetInt32() == 3);
+var archiveRoot = Dir("Archive downloads"); FileAt(archiveRoot, "First.zip"); FileAt(archiveRoot, "Second.zip");
+p = Preview(archiveRoot);
+Check("archive only root lists independent archives", p.GetProperty("resolvedMode").GetString() == "category" && p.GetProperty("discovered").GetInt32() == 2);
+var ambiguous = Dir("Ambiguous"); Dir("Ambiguous", "不明甲"); Dir("Ambiguous", "不明乙");
+p = Preview(ambiguous);
+Check("ambiguous auto reports needsMode without splitting folders", p.GetProperty("needsMode").GetBoolean() && p.GetProperty("warnings").GetArrayLength() > 0 && p.GetProperty("discovered").GetInt32() == 1);
+Check("explicit category override splits only direct containers", Preview(ambiguous, "category").GetProperty("discovered").GetInt32() == 2);
+Check("explicit asset override keeps any root whole", Preview(root, "asset").GetProperty("discovered").GetInt32() == 1);
+Console.WriteLine($"STRUCTURAL CHECKS PASSED: {checks}");
+Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+Directory.Delete(work, true);
+
+sealed class FakeRemote : HttpMessageHandler
+{
+    public List<string> Searches { get; } = [];
+    public int ItemRequests { get; private set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        var uri = request.RequestUri!; var path = Uri.UnescapeDataString(uri.AbsolutePath);
+        if (uri.Host == "booth.pximg.net") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent([255, 216, 255, 217]) });
+        if (path.Contains("/search/"))
+        {
+            Searches.Add(path);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("<li class='item-card' data-product-id='2345678' data-product-name='Candidate' data-product-brand='test' data-product-price='100'></li>") });
+        }
+        ItemRequests++;
+        var value = new { id = 1234567, name = "Verified remote", url = "https://test.booth.pm/items/1234567", images = new[] { new { original = "https://booth.pximg.net/remote.jpg" } }, shop = new { name = "Test", subdomain = "test" } };
+        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json") });
+    }
+}
