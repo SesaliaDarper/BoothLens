@@ -40,6 +40,8 @@ tests/*.py
 tests/*.sh
 tests/IndexRepair/
 tests/UnityCompile/
+# Local one-off window/PID probes used while debugging a live editor
+tests/inspect-*.ps1
 tests/browser/*.mjs
 !tests/browser/showcase.mjs
 

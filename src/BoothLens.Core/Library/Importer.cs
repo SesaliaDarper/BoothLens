@@ -75,7 +75,7 @@ public sealed class Importer(AppPaths paths, ItemStore store)
             else if (package != null)
             {
                 Queue(project, id, "unitypackage", package, "");
-                store.UpdateJob(id, "queued", "Waiting for Unity package import.", project);
+                store.UpdateJob(id, "queued", "已提交给 Unity；请切换到 Unity 的 Import Unity Package 窗口确认 Import，完成后回传结果。", project);
             }
             else
             {
@@ -102,6 +102,131 @@ public sealed class Importer(AppPaths paths, ItemStore store)
         return store.GetJob(id)!;
     }
 
+    public sealed record ResetPendingResult(string ProjectId, IReadOnlyList<long> CancelledJobs, string Message);
+    private sealed record PendingRecord(string File, string Folder, long Id, byte[] Content, bool Archived);
+    private const string ResetMessage = "用户清理了跨进程遗留及排队的导入记录；未删除源文件或项目资源，请按需手动重新提交。";
+
+    /// <summary>Cancel records only. No source/Assets access, replay, or package import occurs here.</summary>
+    public ResetPendingResult ResetPending(UnityEditors.OpenProject project)
+    {
+        var validate = project.RecoveryValidation ?? throw new ArgumentException("请先核验 Unity 在线会话后再清理记录。");
+        var start = validate(project);
+        var projectPath = ResourcePaths.Full(project.ProjectPath);
+        ResourcePaths.RequireDirectory(projectPath);
+        ResourcePaths.RequireDirectory(Path.Combine(projectPath, "Assets"));
+        var root = Path.Combine(projectPath, "Library", "BoothLens");
+        if (!Directory.Exists(root)) return new(project.Id, Array.Empty<long>(), "没有待处理的导入记录。");
+        ResourcePaths.RequireDirectory(root);
+        var records = new List<PendingRecord>();
+        long recordBytes = 0;
+        // Preflight the entire batch before moving anything. Old running records remain a bridge barrier
+        // until every queued record has been archived, so clearing the blockage never replays the queue.
+        foreach (var folder in new[] { "queue", "running" })
+        {
+            ReadRecords(Path.Combine(root, folder), folder, false);
+            ReadRecords(Path.Combine(root, "cancelled", folder), folder, true);
+        }
+        if (records.Any(r => !r.Archived && r.Folder == "queue") && !records.Any(r => !r.Archived && r.Folder == "running"))
+            throw new ArgumentException("仅有排队任务，Unity 可能正在接收任务；请等待处理或在 Unity 中确认。");
+        var done = Path.Combine(root, "done");
+        if (Directory.Exists(done)) ResourcePaths.RequireDirectory(done);
+        foreach (var record in records)
+        {
+            var receipt = Path.Combine(done, record.Id + ".json");
+            if (!File.Exists(receipt)) continue;
+            using var json = JsonDocument.Parse(UnityEditors.ReadLimited(receipt, 65536));
+            var value = json.RootElement;
+            if (!value.TryGetProperty("jobId", out var id) || !id.TryGetInt64(out var received) || received != record.Id ||
+                !value.TryGetProperty("state", out var state) || state.GetString() != "failed")
+                throw new IOException("任务已有完成回执，请先刷新任务状态再清理。");
+        }
+        foreach (var record in records.Where(r => !r.Archived))
+        {
+            var archive = Path.Combine(root, "cancelled", record.Folder, record.Id + ".json");
+            if (File.Exists(archive) || Directory.Exists(archive))
+                throw new IOException("待处理任务归档位置已存在，请检查 BoothLens 记录。");
+        }
+        var cancelled = new HashSet<long>();
+        foreach (var record in records.OrderBy(r => r.Folder == "queue" ? 0 : 1).ThenBy(r => r.Id))
+        {
+            if (validate(project) != start) throw new ArgumentException("Unity 会话已改变，请刷新后重试。");
+            CheckRunning();
+            var archiveDirectory = Path.Combine(root, "cancelled", record.Folder);
+            EnsureDirectory(archiveDirectory);
+            var archive = Path.Combine(archiveDirectory, record.Id + ".json");
+            if (!record.Archived)
+            {
+                // Re-read immediately before moving: an updated/replaced record must not be cancelled.
+                if (!UnityEditors.ReadLimited(record.File, 65536).SequenceEqual(record.Content))
+                    throw new IOException("待处理任务发生变化，请刷新后重试。");
+                if (record.Folder == "running" && File.GetLastWriteTimeUtc(record.File).Ticks >= start)
+                    throw new ArgumentException("检测到当前 Unity 会话的运行任务，请在 Unity 中结束当前导入。");
+                if (File.Exists(archive))
+                {
+                    ResourcePaths.NoLinks(archive);
+                    // Existing archives are immutable; never overwrite a record from another attempt.
+                    throw new IOException("任务归档已存在且待处理记录仍在，请检查 BoothLens 记录。");
+                }
+                File.Move(record.File, archive);
+            }
+            if (store.GetJob(record.Id)?.State != "queued") continue;
+            EnsureDirectory(done);
+            var receipt = Path.Combine(done, record.Id + ".json");
+            if (!File.Exists(receipt))
+            {
+                var temporary = receipt + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    JsonSerializer.Serialize(output, new { jobId = record.Id, state = "failed", message = ResetMessage });
+                File.Move(temporary, receipt);
+            }
+            cancelled.Add(record.Id);
+        }
+        // Use the same receipt path as ordinary Unity completion, rather than directly editing job state.
+        Poll(projectPath);
+        return new(project.Id, cancelled.OrderBy(id => id).ToArray(), cancelled.Count == 0 ? "没有待处理的导入记录。" : ResetMessage);
+
+        void CheckRunning()
+        {
+            var running = Path.Combine(root, "running");
+            if (!Directory.Exists(running)) return;
+            ResourcePaths.RequireDirectory(running);
+            foreach (var file in Directory.EnumerateFiles(running, "*.json").Take(MaxEntries + 1))
+            {
+                ResourcePaths.NoLinks(file);
+                if (File.GetLastWriteTimeUtc(file).Ticks >= start || !records.Any(r => !r.Archived && r.Folder == "running" && r.File == file))
+                    throw new ArgumentException("检测到当前 Unity 会话的运行任务或新增任务，请在 Unity 中结束当前导入。");
+            }
+        }
+        void ReadRecords(string directory, string folder, bool archived)
+        {
+            if (!Directory.Exists(directory)) return;
+            ResourcePaths.RequireDirectory(directory);
+            foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
+            {
+                if (records.Count >= MaxEntries) throw new IOException("待处理记录数量超过清理上限。");
+                var content = UnityEditors.ReadLimited(file, 65536);
+                recordBytes += content.Length;
+                if (recordBytes > 16 * 1024 * 1024) throw new IOException("待处理记录总大小超过清理上限。");
+                var id = UnityEditors.JobId(file) ?? throw new IOException("待处理任务文件名无效。");
+                using var json = JsonDocument.Parse(content);
+                var value = json.RootElement;
+                if (!value.TryGetProperty("jobId", out var jobId) || !jobId.TryGetInt64(out var received) || received != id ||
+                    !value.TryGetProperty("mode", out var mode) || mode.ValueKind != JsonValueKind.String || mode.GetString() is not ("unitypackage" or "refresh"))
+                    throw new IOException("待处理任务 ID 或类型无效。");
+                if (!archived && folder == "running" && File.GetLastWriteTimeUtc(file).Ticks >= start)
+                    throw new ArgumentException("检测到当前 Unity 会话的运行任务，请在 Unity 中结束当前导入。");
+                var job = store.GetJob(id) ?? throw new IOException("待处理记录未关联到本机导入任务。");
+                if (string.IsNullOrWhiteSpace(job.TargetPath)) throw new IOException("待处理任务缺少目标工程。");
+                var target = ResourcePaths.Full(job.TargetPath);
+                if (mode.GetString() == "unitypackage" ? !ResourcePaths.Comparer.Equals(target, projectPath)
+                    : !ResourcePaths.Under(Path.Combine(projectPath, "Assets"), target))
+                    throw new IOException("待处理任务不属于所选工程。");
+                if (records.Any(r => r.Id == id)) throw new IOException("待处理任务 ID 重复，请检查 BoothLens 记录。");
+                records.Add(new(file, folder, id, content, archived));
+            }
+        }
+    }
+
     public void Poll(string? project)
     {
         if (string.IsNullOrWhiteSpace(project)) return;
@@ -114,12 +239,12 @@ public sealed class Importer(AppPaths paths, ItemStore store)
             try
             {
                 ResourcePaths.NoLinks(receipt);
-                if (!long.TryParse(Path.GetFileNameWithoutExtension(receipt), out var id) || new FileInfo(receipt).Length > 65536) continue;
+                if (UnityEditors.JobId(receipt) is not long id) continue;
                 var job = store.GetJob(id);
                 if (job?.State != "queued" || job.TargetPath == null) continue;
                 var target = ResourcePaths.Full(job.TargetPath);
                 if (!ResourcePaths.Comparer.Equals(target, project) && !ResourcePaths.Under(project, target)) continue;
-                using var json = JsonDocument.Parse(File.ReadAllText(receipt));
+                using var json = JsonDocument.Parse(UnityEditors.ReadLimited(receipt, 65536));
                 var root = json.RootElement;
                 if (!root.TryGetProperty("jobId", out var jobId) || !jobId.TryGetInt64(out var receivedId) || receivedId != id) continue;
                 if (!root.TryGetProperty("state", out var stateValue) || stateValue.ValueKind != JsonValueKind.String) continue;

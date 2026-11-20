@@ -104,6 +104,9 @@ app.MapGet("/api/files", (string? status, int? page, int? pageSize, string? q) =
 app.MapGet("/api/resources", (string? status, int? page, int? pageSize, string? q) => local.List(status, ClampPage(page), Math.Clamp(pageSize ?? 24, 1, 100), q));
 app.MapGet("/api/resources/detail", (string path) => local.Get(path) ?? throw new KeyNotFoundException("资源容器不存在。"));
 app.MapGet("/api/roots", () => local.ListRoots());
+app.MapGet("/api/categories", (string? root) => local.ListCategories(root));
+app.MapPost("/api/categories/remove", (CategoryRequest body) => local.RemoveCategory(body.Root ?? "", body.Category ?? ""));
+app.MapPost("/api/categories/restore", (CategoryRequest body) => local.RestoreCategory(body.Root ?? "", body.Category ?? ""));
 app.MapGet("/api/structure", (string root) => local.Structure(root));
 app.MapGet("/api/resources/boundaries", (string? root) => local.GetBoundaries(root));
 app.MapPost("/api/resources/boundary", (BoundaryRequest body) => local.ConfigureBoundary(body.Path ?? "", body.Kind ?? "auto"));
@@ -155,6 +158,8 @@ app.MapPost("/api/settings", (SettingsRequest body) =>
 });
 app.MapPost("/api/import", (ImportRequest body) => importer.Import(body.Path ?? "", body.Mode, editors.Resolve(body.ProjectId).ProjectPath));
 app.MapGet("/api/unity/projects", () => new { projects = editors.List(), message = "仅显示已打开且安装新版桥接脚本的 Unity 编辑器；不使用设置中保存的历史工程路径。" });
+app.MapPost("/api/unity/reset-pending", (ResetPendingRequest body) =>
+    importer.ResetPending(editors.ResolveForRecovery(body.ProjectId)));
 app.MapGet("/api/jobs", () =>
 {
     foreach (var project in editors.List()) importer.Poll(project.ProjectPath);
@@ -197,8 +202,10 @@ record ConfirmRequest(string? Path, long Id);
 record RetryRequest(string? Path);
 record LocalCoverRequest(string? Path, string? ImageBase64);
 record BoundaryRequest(string? Path, string? Kind);
+record CategoryRequest(string? Root, string? Category);
 record ResourceImportRequest(string? Path, string? MemberPath, string? Mode, string? ProjectId);
 record RevealRequest(string? Path);
 record LinkRequest(string? Path, string? Input);
 record SettingsRequest(string? CookieHeader);
 record ImportRequest(string? Path, string? Mode, string? ProjectId);
+record ResetPendingRequest(string? ProjectId);

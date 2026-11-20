@@ -323,6 +323,29 @@ function renderResourceDetail(f, item) {
   updateStructureControls();
 }
 function resourceFrom(result, fallback) { const value = result?.resource || result?.file || result; return value?.path ? { ...fallback, ...value } : fallback; }
+async function manageCategories() {
+  const dialog = $('#categories-dialog'); if (!dialog.open) dialog.showModal();
+  const target = $('#category-management'); target.replaceChildren(el('p', 'field-note', '正在读取分类…'));
+  try {
+    const result = await api('/api/categories'); target.replaceChildren();
+    if (!result.categories?.length) { target.append(el('p', 'field-note', '暂无可管理的分类，先扫描素材目录。')); return; }
+    for (const c of result.categories) {
+      const row = el('div', 'category-management-row'), text = el('div'); row.dataset.removed = String(c.effectiveRemoved);
+      text.append(el('strong', '', c.category), el('p', 'path', c.root), el('p', 'secondary', `${c.count} 个直属资源${c.removed ? ' · 已移除' : c.effectiveRemoved ? ' · 父分类已移除' : ''}`));
+      const action = button(c.removed ? '恢复' : '移除', async () => {
+        if (!c.removed && !confirm(`从资源库移除分类“${c.category}”？\n\n根目录：${c.root}\n该分类及子分类的资源归入“未分类”。磁盘文件、商品绑定、配图与导入记录保持不动，可随时恢复。`)) return;
+        action.disabled = true;
+        try { await api(`/api/categories/${c.removed ? 'restore' : 'remove'}`, { root: c.root, category: c.category });
+          for (const config of Object.values(state.resources)) { config.category = ''; config.page = 1; }
+          await refreshResources(); await manageCategories(); notice(c.removed ? '已恢复分类。' : '已移除分类；资源归入未分类，原文件保持不动。');
+        } finally { action.disabled = false; }
+      });
+      action.disabled = c.effectiveRemoved && !c.removed; if (action.disabled) { action.textContent = '先恢复父分类'; }
+      row.append(text, action); target.append(row);
+    }
+  } catch (e) { errorPanel(target, e, manageCategories); }
+}
+$$('.category-manage').forEach(b => b.addEventListener('click', () => manageCategories().catch(noticeError)));
 async function refreshResources() { state.cache.clear(); state.baseline = null; state.rootsLoaded = false; const view = state.view; if (view === 'library' || view === 'files') await loadResources(view); if (view === 'files') await loadStructure(); }
 async function retryResource(f) {
   try { const result = await api('/api/resources/retry', { path: f.path }); notice(isBound(f) ? '已标记刷新。下次主动扫描时重新读取成员与本地配图；手动绑定保留。' : '已清除候选缓存。下次主动扫描此资源时将重新在线识别；本次操作不会启动扫描。'); await refreshResources(); if ($('#detail-dialog').open && state.detailPath === f.path) await resourceDetail(resourceFrom(result, f)); await checkScan(); }
@@ -349,6 +372,12 @@ function updateImportTarget() {
   else if (!project) target.append(el('span', 'secondary', state.projects.length ? '请选择一个已打开的工程，确认完整路径后再导入。' : '未选择目标工程。'));
   else {
     target.append(el('strong', '', `目标工程：${project.name || project.projectPath}`), el('p', 'path', project.projectPath || ''), el('p', 'secondary', `Editor PID ${project.processId ?? '—'}${project.isActive ? ' · 最近聚焦' : ''}${project.busy ? ' · 正忙，请稍后刷新' : ''}${!project.bridgeReady ? ' · 桥接尚未就绪' : ''}`));
+    if (project.blockReason) target.append(el('p', 'error', project.blockReason));
+    if (project.pendingJobId && !project.canResetPending) target.append(el('p', 'secondary', `任务 #${project.pendingJobId} 正在等待 Unity 完成。先切换到 Unity 检查 Import Unity Package 窗口；若导入早已结束且没有该窗口，使用 Unity 菜单 Tools → BoothLens → Resolve pending import 清理本次会话记录及重复等待任务，再重新提交一次。`));
+    if (project.canResetPending) target.append(button('清理旧会话的待处理队列', async () => {
+      if (!confirm(`清理工程“${project.name}”中旧会话遗留的导入任务及等待队列？\n\n只取消任务记录，不删除项目资源或源包；不会自动重放导入。清理后请重新选择需要的包。`)) return;
+      const result = await api('/api/unity/reset-pending', { projectId: project.id }); notice(result.message || '旧队列已清理，请重新提交需要的导入。'); await loadUnityProjects();
+    }));
   }
   $('#import-submit').disabled = state.projectsLoading || state.importSubmitting || !project || !project.bridgeReady || Boolean(project.busy);
 }

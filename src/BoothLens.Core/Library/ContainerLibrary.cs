@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS resource_meta (
  active INTEGER NOT NULL DEFAULT 1, last_scan TEXT, updated_at TEXT);
 CREATE INDEX IF NOT EXISTS ix_resource_root ON resource_meta(root,active);
 CREATE TABLE IF NOT EXISTS resource_roots (path TEXT PRIMARY KEY, mode TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS resource_category_rules (root TEXT NOT NULL, category TEXT NOT NULL, PRIMARY KEY(root,category));
 CREATE TABLE IF NOT EXISTS folder_boundary (path TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('category','asset')));
 CREATE TABLE IF NOT EXISTS resource_structure_version (path TEXT PRIMARY KEY, version INTEGER NOT NULL);
 """;
@@ -73,6 +74,8 @@ CREATE TABLE IF NOT EXISTS resource_structure_version (path TEXT PRIMARY KEY, ve
     {
         root = ResourcePaths.Full(root); mode = Mode(mode);
         var result = Discover(root, mode, CancellationToken.None);
+        // Preview is a display projection too; discovery and persisted metadata retain raw categories.
+        lock (gate) foreach (var resource in result.Resources) resource.Category = ApplyCategoryRules(resource.Root, resource.Category);
         return new { root, mode, resolvedMode = result.ResolvedMode, detectionExplanation = result.Explanation, warnings = result.Warnings, needsMode = result.NeedsMode, discovered = result.Resources.Count, files = result.Resources, networkRequests = 0 };
     }
     private async Task Run(string root, string mode, bool online, string scanId, CancellationToken ct, bool rebuildStructure)
@@ -87,7 +90,14 @@ CREATE TABLE IF NOT EXISTS resource_structure_version (path TEXT PRIMARY KEY, ve
                 Execute("INSERT INTO resource_roots(path,mode) VALUES($p,$m) ON CONFLICT(path) DO UPDATE SET mode=excluded.mode", ("$p", catalogRoot), ("$m", ResourcePaths.Comparer.Equals(root, catalogRoot) ? discovery.ResolvedMode : RegisteredMode(catalogRoot) ?? "library"));
                 // A newly scanned ancestor becomes the single canonical owner of its descendants.
                 foreach (var registered in RegisteredRoots().Where(x => !ResourcePaths.Comparer.Equals(x.Path, catalogRoot) && Within(x.Path, catalogRoot)))
+                {
+                    // Reparent rules along with canonical ownership; scanning an ancestor must not revive categories.
+                    var prefix = CategoryKey(Path.GetRelativePath(catalogRoot, registered.Path));
+                    foreach (var category in CategoryRules(registered.Path))
+                        Execute("INSERT OR IGNORE INTO resource_category_rules(root,category) VALUES($r,$c)", ("$r", catalogRoot), ("$c", prefix + "/" + category));
+                    // Keep old-root rules for metadata not yet visited, including cancelled scans and tombstones.
                     Execute("DELETE FROM resource_roots WHERE path=$p", ("$p", registered.Path));
+                }
             }
             lock (gate)
             {
@@ -322,6 +332,84 @@ CREATE TABLE IF NOT EXISTS resource_structure_version (path TEXT PRIMARY KEY, ve
         while (r.Read()) result[r.GetString(0)] = r.GetString(1); return result;
     }
     public object ListRoots() { lock (gate) return new { roots = RegisteredRoots() }; }
+
+    // Category rules only affect the public projection. Never rewrite resource_meta.category:
+    // discovery relies on its raw physical boundaries, and restore must not need a rescan.
+    public sealed record CategoryEntry(string Root, string Category, long Count, bool Removed, bool EffectiveRemoved);
+    private static string CategoryKey(string category) => category.Replace('\\', '/');
+    private static bool CategoryWithin(string category, string parent) => ResourcePaths.Comparer.Equals(category, parent) || category.StartsWith(parent + "/", ResourcePaths.Comparison);
+    private HashSet<string> CategoryRules(string root)
+    {
+        using var c = db.Open(); using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT category FROM resource_category_rules WHERE root=$r"; cmd.Parameters.AddWithValue("$r", root);
+        using var r = cmd.ExecuteReader(); var result = new HashSet<string>(ResourcePaths.Comparer);
+        while (r.Read()) result.Add(CategoryKey(r.GetString(0))); return result;
+    }
+    private string ApplyCategoryRules(string root, string category)
+    {
+        var key = CategoryKey(category);
+        return key.Length > 0 && CategoryRules(root).Any(parent => CategoryWithin(key, parent)) ? "" : category;
+    }
+    private string RequireCategoryRoot(string root)
+    {
+        root = ResourcePaths.Full(root);
+        return RegisteredRoots().FirstOrDefault(x => ResourcePaths.Comparer.Equals(x.Path, root))?.Path
+            ?? throw new ArgumentException("请指定已登记的资源库根目录。");
+    }
+    private static string ValidateCategory(string category)
+    {
+        if (string.IsNullOrWhiteSpace(category)) throw new ArgumentException("分类必须是非空相对路径。");
+        category = CategoryKey(category);
+        if (category.StartsWith('/') || Path.IsPathRooted(category) || category.Contains(':')) throw new ArgumentException("分类必须是相对路径。");
+        var parts = category.Split('/');
+        if (parts.Any(p => p.Length == 0 || p is "." or ".." || p.EndsWith(' ') || p.EndsWith('.') || p.Any(ch => ch < 32 || ch is '<' or '>' or '"' or '|' or '?' or '*')))
+            throw new ArgumentException("分类路径包含无效片段。");
+        return category;
+    }
+    private List<CategoryEntry> CategoriesForRoot(string root)
+    {
+        var counts = new Dictionary<string, long>(ResourcePaths.Comparer);
+        using var c = db.Open(); using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT category,COUNT(*) FROM resource_meta WHERE root=$r AND active=1 AND category<>'' GROUP BY category";
+        cmd.Parameters.AddWithValue("$r", root);
+        using (var r = cmd.ExecuteReader()) while (r.Read())
+        {
+            var key = CategoryKey(r.GetString(0)); counts[key] = counts.GetValueOrDefault(key) + r.GetInt64(1);
+        }
+        var rules = CategoryRules(root);
+        foreach (var category in rules) counts.TryAdd(category, 0);
+        // A physical parent category may contain only nested categories, with no direct assets.
+        foreach (var category in counts.Keys.ToList())
+            for (var slash = category.IndexOf('/'); slash >= 0; slash = category.IndexOf('/', slash + 1))
+                counts.TryAdd(category[..slash], 0);
+        return counts.OrderBy(x => x.Key, ResourcePaths.Comparer)
+            .Select(x => new CategoryEntry(root, x.Key, x.Value, rules.Contains(x.Key), rules.Any(parent => CategoryWithin(x.Key, parent)))).ToList();
+    }
+    public object ListCategories(string? root = null)
+    {
+        lock (gate)
+        {
+            var roots = root == null ? RegisteredRoots().Select(x => x.Path).ToList() : new List<string> { RequireCategoryRoot(root) };
+            return new { categories = roots.SelectMany(CategoriesForRoot).ToList() };
+        }
+    }
+    public CategoryEntry RemoveCategory(string root, string category) => SetCategoryRemoved(root, category, true);
+    public CategoryEntry RestoreCategory(string root, string category) => SetCategoryRemoved(root, category, false);
+    private CategoryEntry SetCategoryRemoved(string root, string category, bool removed)
+    {
+        lock (gate)
+        {
+            root = RequireCategoryRoot(root); category = ValidateCategory(category);
+            var entry = CategoriesForRoot(root).FirstOrDefault(x => ResourcePaths.Comparer.Equals(x.Category, category))
+                ?? throw new KeyNotFoundException("分类不存在。");
+            // Use the canonical stored spelling for idempotence on case-insensitive filesystems.
+            category = entry.Category;
+            if (removed) Execute("INSERT OR IGNORE INTO resource_category_rules(root,category) VALUES($r,$c)", ("$r", root), ("$c", category));
+            else Execute("DELETE FROM resource_category_rules WHERE root=$r AND category=$c", ("$r", root), ("$c", category));
+            var rules = CategoryRules(root);
+            return entry with { Removed = rules.Contains(category), EffectiveRemoved = rules.Any(parent => CategoryWithin(category, parent)) };
+        }
+    }
     public object GetBoundaries(string? root = null)
     {
         lock (gate) { var scope = root == null ? null : ResourcePaths.Full(root); return new { boundaries = Boundaries().Where(x => scope == null || Within(x.Key, scope)).Select(x => new { path = x.Key, kind = x.Value }).ToList() }; }
@@ -650,7 +738,7 @@ ON CONFLICT(path) DO UPDATE SET root=excluded.root,category=excluded.category,al
     {
         var meta = Meta(path); var f = store.GetLocalFile(path); if (meta == null || f == null) return null;
         var item = f.ItemId is long id ? store.Get(id) : null;
-        return new() { Path = f.Path, Root = meta.Root, RootPath = f.RootPath, Name = f.Name, Kind = f.Kind, Size = f.Size, Mtime = f.Mtime, ItemId = f.ItemId, Confidence = f.Confidence, MatchedBy = f.MatchedBy, Status = f.Status, Imported = f.Imported, UpdatedAt = f.UpdatedAt, Title = item?.Title, Thumb = item?.Thumb, ShopName = item?.ShopName, HasImage = item?.HasImage ?? false, Category = meta.Category, Aliases = meta.Aliases, Members = meta.Members, Candidates = meta.Candidates, RecognitionState = meta.RecognitionState, Error = meta.Error, LocalCoverPath = meta.LocalCoverPath, RetryRequested = meta.RetryRequested, Skipped = meta.Skipped, Item = item };
+        return new() { Path = f.Path, Root = meta.Root, RootPath = f.RootPath, Name = f.Name, Kind = f.Kind, Size = f.Size, Mtime = f.Mtime, ItemId = f.ItemId, Confidence = f.Confidence, MatchedBy = f.MatchedBy, Status = f.Status, Imported = f.Imported, UpdatedAt = f.UpdatedAt, Title = item?.Title, Thumb = item?.Thumb, ShopName = item?.ShopName, HasImage = item?.HasImage ?? false, Category = ApplyCategoryRules(meta.Root, meta.Category), Aliases = meta.Aliases, Members = meta.Members, Candidates = meta.Candidates, RecognitionState = meta.RecognitionState, Error = meta.Error, LocalCoverPath = meta.LocalCoverPath, RetryRequested = meta.RetryRequested, Skipped = meta.Skipped, Item = item };
     }
     public sealed record ScanStatus
     {

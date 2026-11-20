@@ -34,6 +34,8 @@ namespace BoothLens.Editor
             public string updatedUtc;
             public bool isActive;
             public bool busy;
+            public string bridgeVersion;
+            public long activeJobId;
         }
         private static readonly int ProcessId = System.Diagnostics.Process.GetCurrentProcess().Id;
         private static readonly long ProcessStartTicks = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
@@ -71,6 +73,7 @@ namespace BoothLens.Editor
                 var status = new Heartbeat { id = EditorId, projectPath = Project, processId = ProcessId,
                     processStartTicks = ProcessStartTicks, updatedUtc = DateTime.UtcNow.ToString("O"),
                     isActive = UnityEditorInternal.InternalEditorUtility.isApplicationActive,
+                    bridgeVersion = "0.2.0", activeJobId = active != null ? active.jobId : 0,
                     busy = active != null || EditorApplication.isCompiling || EditorApplication.isUpdating || EditorApplication.isPlayingOrWillChangePlaymode };
                 var temp = HeartbeatPath + ".tmp";
                 File.WriteAllText(temp, JsonUtility.ToJson(status));
@@ -85,6 +88,7 @@ namespace BoothLens.Editor
             catch (Exception ex) { Debug.LogWarning("BoothLens heartbeat cleanup: " + ex.Message); }
         }
 
+        private static bool warnedPending;
         private static void Tick()
         {
             if (EditorApplication.timeSinceStartup < nextCheck) return;
@@ -99,7 +103,12 @@ namespace BoothLens.Editor
                 CheckNoLinks(queue);
                 // A stale running job needs explicit resolution; never silently repeat a package import.
                 var running = Path.Combine(Root, "running");
-                if (Directory.Exists(running) && Directory.EnumerateFiles(running, "*.json").Any()) return;
+                if (Directory.Exists(running) && Directory.EnumerateFiles(running, "*.json").Any())
+                {
+                    if (!warnedPending) { Debug.LogWarning("BoothLens: 有未完成的导入任务阻塞队列。请回到 BoothLens 导入窗口查看并清理旧会话队列，或使用 Tools/BoothLens/Resolve pending import。"); warnedPending = true; }
+                    return;
+                }
+                warnedPending = false;
                 var file = Directory.EnumerateFiles(queue, "*.json").OrderBy(x => x, StringComparer.Ordinal).FirstOrDefault();
                 if (file == null) return;
                 CheckNoLinks(file);
@@ -132,6 +141,7 @@ namespace BoothLens.Editor
                         throw new IOException("Unity package source is missing or invalid.");
                     CheckNoLinks(job.source);
                     // Interactive dialog retains the original package paths and GUIDs.
+                    Debug.Log("BoothLens: 正在打开 Unity 原生包导入窗口，请切换到 Unity 确认 Import。任务 #" + job.jobId);
                     AssetDatabase.ImportPackage(job.source, true);
                 }
                 else throw new IOException("Unsupported BoothLens job mode.");
@@ -159,7 +169,7 @@ namespace BoothLens.Editor
         private static bool MatchesPackage(string packageName)
         {
             return active != null && active.mode == "unitypackage" &&
-                string.Equals(Path.GetFileNameWithoutExtension(active.source), Path.GetFileNameWithoutExtension(packageName), StringComparison.OrdinalIgnoreCase);
+                string.Equals(PackageNames.Normalize(active.source), PackageNames.Normalize(packageName), StringComparison.OrdinalIgnoreCase);
         }
         private static void Finish(string state, string message)
         {
@@ -186,14 +196,39 @@ namespace BoothLens.Editor
         private static void Resolve()
         {
             if (EditorApplication.isCompiling || EditorApplication.isUpdating) return;
-            if (!EditorUtility.DisplayDialog("BoothLens", "仅在原导入已经停止时使用。将待处理记录标记为失败，然后回到 BoothLens 重新提交；不会删除项目资源。", "确认已停止", "返回")) return;
-            var running = Path.Combine(Root, "running");
-            if (active == null && Directory.Exists(running))
+            if (!EditorUtility.DisplayDialog("BoothLens", "仅在原导入已经停止、没有 Import Unity Package 窗口时使用。取消当前记录及全部等待任务，避免连续弹出重复导入；不会删除项目资源。之后回到 BoothLens 重新提交一次。", "确认已停止并清理", "返回")) return;
+            var saved = active;
+            try
             {
-                var file = Directory.EnumerateFiles(running, "*.json").FirstOrDefault();
-                if (file != null) { CheckNoLinks(file); active = JsonUtility.FromJson<Job>(File.ReadAllText(file)); }
+                var queue = Path.Combine(Root, "queue");
+                var files = Directory.Exists(queue) ? Directory.EnumerateFiles(queue, "*.json").ToArray() : new string[0];
+                // Cancel queued duplicates BEFORE releasing the running barrier.
+                foreach (var file in files)
+                {
+                    CheckNoLinks(file);
+                    if (new FileInfo(file).Length > 65536) throw new IOException("Pending JSON is too large.");
+                    var job = JsonUtility.FromJson<Job>(File.ReadAllText(file));
+                    if (job == null || job.jobId <= 0 || Path.GetFileNameWithoutExtension(file) != job.jobId.ToString()) throw new IOException("Invalid pending job.");
+                    active = job;
+                    Finish("failed", "用户清理了等待队列，避免重复导入；可按需重新提交。");
+                    if (active != null) throw new IOException("Failed to save cancellation receipt.");
+                    File.Delete(file);
+                }
+                active = saved;
+                var running = Path.Combine(Root, "running");
+                if (active == null && Directory.Exists(running))
+                {
+                    var file = Directory.EnumerateFiles(running, "*.json").FirstOrDefault();
+                    if (file != null) { CheckNoLinks(file); active = JsonUtility.FromJson<Job>(File.ReadAllText(file)); }
+                }
+                Finish("failed", "用户手动结束了待处理的导入记录。");
             }
-            Finish("failed", "用户手动结束了待处理的导入记录。");
+            catch (Exception ex)
+            {
+                active = saved;
+                if (saved != null) SessionState.SetString(SessionKey, JsonUtility.ToJson(saved));
+                Debug.LogError("BoothLens queue recovery: " + ex.Message);
+            }
         }
         private static bool Under(string root, string path)
         {
@@ -212,3 +247,17 @@ namespace BoothLens.Editor
     }
 }
 #endif
+
+// Pure helper shared with regression tests; only the actual package suffix is removed.
+namespace BoothLens.Editor
+{
+    internal static class PackageNames
+    {
+        internal static string Normalize(string value)
+        {
+            var name = System.IO.Path.GetFileName((value ?? "").Replace('\\', '/'));
+            const string extension = ".unitypackage";
+            return name.EndsWith(extension, System.StringComparison.OrdinalIgnoreCase) ? name.Substring(0, name.Length - extension.Length) : name;
+        }
+    }
+}
