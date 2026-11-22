@@ -78,6 +78,15 @@ app.MapGet("/unity/BoothRelay.zip", () =>
 app.MapGet("/api/health", () => new { ok = true });
 app.MapGet("/api/status", () => new { items = store.Count(), requests = booth.RequestCount, imageRequests = booth.ImageRequestCount });
 app.MapGet("/api/session", () => new { token });
+// Only the owning desktop launcher can request a graceful stop; the regular browser token is insufficient.
+var launcherToken = Environment.GetEnvironmentVariable("BOOTHLENS_LAUNCHER_TOKEN");
+app.MapPost("/api/app/shutdown", (HttpContext ctx) =>
+{
+    if (string.IsNullOrEmpty(launcherToken) || !string.Equals(ctx.Request.Headers["X-BoothLens-Launcher"].ToString(), launcherToken, StringComparison.Ordinal))
+        return Results.Json(new { error = "此服务由其他启动方式运行，请使用对应的启动窗口退出。" }, statusCode: 403);
+    ctx.Response.OnCompleted(() => { app.Lifetime.StopApplication(); return Task.CompletedTask; });
+    return Results.Ok(new { ok = true });
+});
 app.MapGet("/api/items", (string? q, int? page, int? pageSize) =>
 {
     var (items, total) = store.Search(q, ClampPage(page), Math.Clamp(pageSize ?? 24, 1, 100), null, false);

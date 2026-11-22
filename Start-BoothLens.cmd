@@ -1,6 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+if exist "Start-BoothLens.exe" (
+  start "" "%~dp0Start-BoothLens.exe"
+  exit /b 0
+)
 title BoothLens - Keep this window open
 if exist "BoothLens.exe" (
   "BoothLens.exe" --open

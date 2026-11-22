@@ -4,6 +4,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>BoothLens</AssemblyName>
+    <Version>0.3.0</Version>
+    <Product>BoothLens</Product>
+    <Description>BoothLens 本地资源库服务</Description>
+    <ApplicationIcon>../../assets/boothlens.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BoothLens.Core/BoothLens.Core.csproj" />

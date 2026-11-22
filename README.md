@@ -53,8 +53,11 @@ BoothLens 是一个 **Windows 本地素材管理工具**。它把下载目录、
 ### 1 · 获取程序
 
 - 在 [Releases](https://github.com/SesaliaDarper/BoothLens/releases/latest) 下载 **BoothLens-Windows-x64.zip** 并解压。
-- 双击 `Start-BoothLens.cmd`。程序在本机启动，并打开 **http://127.0.0.1:5180**。
-- 关闭启动窗口停止服务。仅关闭浏览器不会停止服务。
+- 双击 `Start-BoothLens.exe`，无需安装 .NET，也没有 CMD 黑窗口；服务就绪后在 **WebView2 原生桌面窗口**中打开资源库。
+- Windows 需要 **Microsoft Edge WebView2 Runtime**，当前 Windows 10 / 11 通常已内置。如提示缺失，请按窗口提示安装 [WebView2 Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/#download)，再重新打开主界面。
+- 也可通过菜单“在浏览器打开”备用访问 **http://127.0.0.1:5180**；桌面窗口与浏览器连接同一个本地服务。
+- 关闭桌面窗口只会收起到系统托盘，不退出程序；桥接脚本和 ZIP 下载、扫描与导入仍可继续。双击托盘图标恢复窗口，托盘菜单选择“退出 BoothLens”才停止它启动的服务；仅关闭备用浏览器不停止服务。
+- 重复双击不会启动重复实例。若服务原本已经运行，桌面程序直接连接，退出也不影响原有服务。请保留完整发布包，不要只移动 EXE。
 
 > 仓库保存源代码，不保存你的素材、数据库和已下载封面。Windows 发布包单独提供在 Releases。
 
@@ -76,7 +79,7 @@ Assets/Editor/BoothRelay.cs
 
 ## 从源码运行
 
-需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)。浏览器界面为原生 HTML / CSS / JavaScript，不需要前端构建工具。
+需要 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)。界面为原生 HTML / CSS / JavaScript，不需要前端构建工具；Windows 桌面外壳使用 WinForms / WebView2，运行桌面窗口需要 WebView2 Runtime。以下命令直接运行本地服务，可用浏览器访问 `http://127.0.0.1:5180`。
 
 ```bash
 git clone https://github.com/SesaliaDarper/BoothLens.git
@@ -123,8 +126,10 @@ dotnet run --project tests/EditorCheck
 ## 项目结构
 
 ```text
+assets/               桌面 PNG / ICO 图标
 src/
-  BoothLens.App/       ASP.NET Core API 与浏览器界面
+  BoothLens.Launcher/  WinForms / WebView2 桌面窗口与系统托盘
+  BoothLens.App/       ASP.NET Core API 与共用 Web 界面
   BoothLens.Core/      BOOTH 解析、索引、资源容器与导入逻辑
 unity/                Unity Editor 桥接脚本
 tests/                隔离回归检查与界面展示脚本
