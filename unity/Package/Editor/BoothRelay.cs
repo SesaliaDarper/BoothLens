@@ -73,7 +73,7 @@ namespace BoothLens.Editor
                 var status = new Heartbeat { id = EditorId, projectPath = Project, processId = ProcessId,
                     processStartTicks = ProcessStartTicks, updatedUtc = DateTime.UtcNow.ToString("O"),
                     isActive = UnityEditorInternal.InternalEditorUtility.isApplicationActive,
-                    bridgeVersion = "0.3.0", activeJobId = active != null ? active.jobId : 0,
+                    bridgeVersion = "0.4.0", activeJobId = active != null ? active.jobId : 0,
                     busy = active != null || EditorApplication.isCompiling || EditorApplication.isUpdating || EditorApplication.isPlayingOrWillChangePlaymode };
                 var temp = HeartbeatPath + ".tmp";
                 File.WriteAllText(temp, JsonUtility.ToJson(status));

@@ -93,7 +93,13 @@ public sealed class UnityBridgePackages
             return new(Result("not-installed", "尚未安装桥接包。请先退出 Play Mode，等待 Unity 编译和导入结束后手动安装；当前未确认编辑器连接。"), legacy, false);
         }
         catch (Exception ex) when (ResourcePaths.IsPathError(ex) || ex is JsonException or InvalidOperationException or KeyNotFoundException or RegexMatchTimeoutException)
-        { return new(Result(project == input && !Directory.Exists(project) ? "invalid-project" : "conflict", ex.Message), legacy, exists); }
+        {
+            // Missing folder is the most common mistake; give a concrete hint instead of a raw framework message.
+            var missing = project == input && !Directory.Exists(project);
+            return new(Result(missing ? "invalid-project" : "conflict", missing
+                ? "未找到该 Unity 工程目录。请选择包含 Assets、Packages 和 ProjectSettings 的工程根目录。"
+                : ex.Message), legacy, exists);
+        }
     }
 
     private Status Mutate(string input, bool uninstall)
