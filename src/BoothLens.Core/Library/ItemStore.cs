@@ -521,30 +521,14 @@ WHERE id = $id
         using var c = _db.Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-SELECT j.*, i.title AS j_title
+SELECT j.*, COALESCE(NULLIF(i.title,''), NULLIF(f.name,'')) AS j_title
 FROM import_jobs j LEFT JOIN items i ON i.id = j.item_id
+LEFT JOIN local_files f ON f.path = j.local_path
 ORDER BY j.id DESC LIMIT $lim
 """;
         cmd.Parameters.AddWithValue("$lim", limit);
         using var r = cmd.ExecuteReader();
-        while (r.Read())
-        {
-            var j = new ImportJob
-            {
-                Id = r.GetInt64(r.GetOrdinal("id")),
-                ItemId = r.IsDBNull(r.GetOrdinal("item_id")) ? null : r.GetInt64(r.GetOrdinal("item_id")),
-                LocalPath = r.IsDBNull(r.GetOrdinal("local_path")) ? null : r.GetString(r.GetOrdinal("local_path")),
-                Mode = r.GetString(r.GetOrdinal("mode")),
-                State = r.GetString(r.GetOrdinal("state")),
-                Message = r.IsDBNull(r.GetOrdinal("message")) ? null : r.GetString(r.GetOrdinal("message")),
-                TargetPath = r.IsDBNull(r.GetOrdinal("target_path")) ? null : r.GetString(r.GetOrdinal("target_path")),
-                CreatedAt = r.GetString(r.GetOrdinal("created_at")),
-                FinishedAt = r.IsDBNull(r.GetOrdinal("finished_at")) ? null : r.GetString(r.GetOrdinal("finished_at"))
-            };
-            var ti = r.GetOrdinal("j_title");
-            if (!r.IsDBNull(ti)) j.Title = r.GetString(ti);
-            list.Add(j);
-        }
+        while (r.Read()) list.Add(ReadJob(r));
         return list;
     }
 
@@ -560,8 +544,9 @@ ORDER BY j.id DESC LIMIT $lim
         using var c = _db.Open();
         using var cmd = c.CreateCommand();
         cmd.CommandText = """
-SELECT j.*, i.title AS j_title
+SELECT j.*, COALESCE(NULLIF(i.title,''), NULLIF(f.name,'')) AS j_title
 FROM import_jobs j LEFT JOIN items i ON i.id = j.item_id
+LEFT JOIN local_files f ON f.path = j.local_path
 WHERE
 """ + " " + cond + " ORDER BY j.id DESC LIMIT 100";
         cmd.Parameters.AddWithValue("$v", value);
@@ -585,7 +570,7 @@ WHERE
             FinishedAt = r.IsDBNull(r.GetOrdinal("finished_at")) ? null : r.GetString(r.GetOrdinal("finished_at"))
         };
         var ti = r.GetOrdinal("j_title");
-        if (!r.IsDBNull(ti)) j.Title = r.GetString(ti);
+        j.Title = !r.IsDBNull(ti) ? r.GetString(ti) : j.LocalPath == null ? null : Path.GetFileName(j.LocalPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         return j;
     }
 

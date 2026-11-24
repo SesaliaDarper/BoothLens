@@ -277,22 +277,105 @@ CREATE TABLE IF NOT EXISTS resource_structure_version (path TEXT PRIMARY KEY, ve
             Save(resource, null); return Dto(path)!;
         }
     }
+    /// <summary>Explicit local-only package refresh of one active container; recognition and bindings are untouched.</summary>
+    public ResourceFile RefreshMembers(string path)
+    {
+        lock (gate)
+        {
+            path = ResourcePaths.Full(path);
+            var resource = Meta(path) ?? throw new KeyNotFoundException("Resource not found.");
+            using (var c = db.Open())
+            using (var cmd = c.CreateCommand())
+            {
+                cmd.CommandText = "SELECT active FROM resource_meta WHERE path=$p"; cmd.Parameters.AddWithValue("$p", path);
+                if (Convert.ToInt64(cmd.ExecuteScalar()) != 1) throw new ArgumentException("Container is not active.");
+            }
+            var local = store.GetLocalFile(path) ?? throw new ArgumentException("Container is not registered.");
+            if (local.Status == "ignored") throw new ArgumentException("Container is ignored; select a different source.");
+            var root = ResourcePaths.Full(resource.Root);
+            ResourcePaths.NoLinks(root);
+            var sources = resource.Aliases.Prepend(path).Select(ResourcePaths.Full).Distinct(ResourcePaths.Comparer).ToList();
+            // Validate every registered source before traversal, including archive aliases and every ancestor.
+            foreach (var source in sources)
+            {
+                if (!Within(source, root)) throw new ArgumentException("Source is outside its registered root.");
+                ResourcePaths.NoLinks(source);
+                var relative = Path.GetRelativePath(root, source);
+                if (relative != "." && relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Any(SkipMemberDirectory))
+                    throw new ArgumentException("Container source is in an excluded directory.");
+            }
+            const int maxDepth = 20, maxEntries = 100000, maxMembers = 10000;
+            var entries = 0;
+            var visited = new HashSet<string>(ResourcePaths.Comparer);
+            var members = new Dictionary<string, ResourceMember>(ResourcePaths.Comparer);
+            void Read(string source, int depth)
+            {
+                if (!visited.Add(source)) return;
+                if (++entries > maxEntries) throw new IOException("Container entry limit exceeded.");
+                if (!Within(source, root)) throw new ArgumentException("Source is outside its registered root.");
+                var attributes = ResourcePaths.NoLinks(source);
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    if (depth >= maxDepth) return;
+                    foreach (var child in Directory.EnumerateFileSystemEntries(source))
+                    {
+                        // Count excluded entries too, so ignored/cache-heavy trees remain bounded.
+                        if (SkipMemberDirectory(Path.GetFileName(child)))
+                        {
+                            if (++entries > maxEntries) throw new IOException("Container entry limit exceeded.");
+                            continue;
+                        }
+                        Read(ResourcePaths.Full(child), depth + 1);
+                    }
+                }
+                else if (Kind(Path.GetFileName(source)) is { } kind)
+                {
+                    if (members.Count >= maxMembers) throw new IOException("Container member limit exceeded.");
+                    members.Add(source, new(source, Path.GetFileName(source), kind, new FileInfo(source).Length, depth));
+                }
+            }
+            foreach (var source in sources) Read(source, 0);
+            var refreshed = members.Values.OrderBy(x => x.Path, ResourcePaths.Comparer).ToList();
+            // Do not use Save: that also writes recognition, candidates, cover, retry flags and scan state.
+            Execute("UPDATE resource_meta SET members_json=$m,updated_at=$now WHERE path=$p AND active=1",
+                ("$m", JsonSerializer.Serialize(refreshed, Json)), ("$now", DateTimeOffset.UtcNow.ToString("O")), ("$p", path));
+            return Dto(path)!;
+        }
+    }
+    private static bool SkipMemberDirectory(string name) => name.StartsWith('.') || name.StartsWith('#') || Skip.Contains(name);
+
     public string PrepareImport(string containerPath, string? memberPath = null)
     {
         lock (gate)
         {
             containerPath = ResourcePaths.Full(containerPath); var resource = Meta(containerPath) ?? throw new KeyNotFoundException("Resource not found.");
-            var local = store.GetLocalFile(containerPath);
-            if (local?.ItemId is not long id || local.Status != "auto" || !store.Exists(id)) throw new ArgumentException("Confirm resource before import.");
+            var local = store.GetLocalFile(containerPath) ?? throw new ArgumentException("Container is not registered.");
+            if (local.Status == "ignored") throw new ArgumentException("Container is ignored; select a different source.");
             var source = string.IsNullOrWhiteSpace(memberPath) ? containerPath : ResourcePaths.Full(memberPath);
             if (!ResourcePaths.Comparer.Equals(source, containerPath) && !resource.Members.Any(x => ResourcePaths.Comparer.Equals(x.Path, source))) throw new ArgumentException("Source is not a registered container member.");
+            if (!Within(containerPath, resource.Root) || !Within(source, resource.Root) ||
+                (!Within(source, containerPath) && !resource.Aliases.Any(alias => Within(source, alias))))
+                throw new ArgumentException("Source is outside its registered container or root.");
+            ResourcePaths.NoLinks(containerPath);
             ResourcePaths.NoLinks(source);
             if (!ResourcePaths.Comparer.Equals(source, containerPath))
             {
                 var existing = store.GetLocalFile(source);
-                if (existing?.MatchedBy == "manual" && existing.ItemId != id) throw new ArgumentException("Member has a different manual binding.");
-                store.UpsertLocalFile(FileRecord(source, resource.Root)); store.SetFileLink(source, id, 1, "container", "auto", true);
-                if (store.GetLocalFile(source)?.Status != "auto") throw new ArgumentException("Member is ignored; select a different source.");
+                if (existing?.Status == "ignored") throw new ArgumentException("Member is ignored; select a different source.");
+                var containerId = local.Status == "auto" && resource.RecognitionState == "bound" && local.ItemId is long id && store.Exists(id) ? (long?)id : null;
+                if (containerId != null && existing?.MatchedBy == "manual" && existing.ItemId != containerId)
+                    throw new ArgumentException("Member has a different manual binding.");
+                store.UpsertLocalFile(FileRecord(source, resource.Root));
+                // Import never confirms candidates or overwrites independent member recognition.
+                // Only an unrecognized member or a previously inherited link follows the bound container.
+                if (existing == null || existing.MatchedBy == "container" ||
+                    (existing.ItemId == null && existing.MatchedBy == null && existing.Status == "unknown"))
+                {
+                    if (containerId != null)
+                        store.SetFileLink(source, containerId, 1, "container", "auto", true);
+                    else if (existing?.MatchedBy == "container")
+                        store.SetFileLink(source, null, null, null, "unknown", true);
+                }
             }
             return source;
         }

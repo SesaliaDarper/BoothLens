@@ -1,0 +1,9 @@
+{
+  "name": "com.boothlens.bridge",
+  "version": "0.3.0",
+  "displayName": "BoothLens Unity Bridge",
+  "description": "Connect this Unity project to the local BoothLens desktop application for explicit package import and status reporting.",
+  "unity": "2022.3",
+  "author": { "name": "BoothLens" },
+  "keywords": [ "boothlens", "editor", "import" ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "BoothLens.Editor",
+  "rootNamespace": "BoothLens.Editor",
+  "references": [],
+  "includePlatforms": [ "Editor" ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "autoReferenced": true
+}

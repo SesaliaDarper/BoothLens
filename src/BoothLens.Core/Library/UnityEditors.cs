@@ -14,7 +14,7 @@ public sealed class UnityEditors
     public UnityEditors(string? registry = null, Func<int,long,bool>? isAlive = null)
     { this.registry = registry ?? DefaultRegistry; this.isAlive = isAlive ?? IsUnity; }
     public sealed record OpenProject(string Id, string ProjectPath, string Name, int ProcessId, bool BridgeReady, bool IsActive, string LastSeen, bool Busy,
-        string? BlockReason = null, long? PendingJobId = null, bool CanResetPending = false)
+        string? BlockReason = null, long? PendingJobId = null, bool CanResetPending = false, string? BridgeVersion = null)
     {
         // Recovery must carry a live registry validation, not trust a caller-supplied path or derived Busy flag.
         internal Func<OpenProject, long>? RecoveryValidation { get; init; }
@@ -28,6 +28,7 @@ public sealed class UnityEditors
         public string? UpdatedUtc { get; set; }
         public bool IsActive { get; set; }
         public bool Busy { get; set; }
+        public string? BridgeVersion { get; set; }
     }
     private Heartbeat ReadHeartbeat(string file)
     {
@@ -112,7 +113,7 @@ public sealed class UnityEditors
                 catch (Exception ex) when (ResourcePaths.IsPathError(ex)) { reason = "待处理任务目录异常，请检查 BoothLens 桥接记录。"; jobId = null; }
                 result.Add(new(h.Id!, h.ProjectPath!, Path.GetFileName(h.ProjectPath!), h.ProcessId, true, h.IsActive,
                     DateTimeOffset.Parse(h.UpdatedUtc!).ToString("O"), h.Busy || reason != null,
-                    h.Busy ? "Unity 正在编译、刷新、运行或处理导入，请稍后重试。" : reason, jobId, CanRecover(h, reason)));
+                    h.Busy ? "Unity 正在编译、刷新、运行或处理导入，请稍后重试。" : reason, jobId, CanRecover(h, reason), h.BridgeVersion));
             }
             catch (Exception ex) when (ResourcePaths.IsPathError(ex) || ex is JsonException or InvalidOperationException) { }
         }

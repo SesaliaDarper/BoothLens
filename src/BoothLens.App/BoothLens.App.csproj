@@ -11,8 +11,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BoothLens.Core/BoothLens.Core.csproj" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
     <Content Update="wwwroot/**/*" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../unity/BoothRelay.cs" Link="unity/BoothRelay.cs" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <EmbeddedResource Include="../../unity/BoothRelay.cs" LogicalName="BoothLens.Unity.BoothRelay.cs" />
+    <EmbeddedResource Include="../../unity/Package/package.json" LogicalName="BoothLens.Unity.Package.package.json" />
+    <EmbeddedResource Include="../../unity/Package/Editor/BoothRelay.cs" LogicalName="BoothLens.Unity.Package.Editor.BoothRelay.cs" />
+    <EmbeddedResource Include="../../unity/Package/Editor/BoothLens.Editor.asmdef" LogicalName="BoothLens.Unity.Package.Editor.BoothLens.Editor.asmdef" />
   </ItemGroup>
 </Project>

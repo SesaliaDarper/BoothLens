@@ -56,7 +56,19 @@ app.Use(async (ctx, next) =>
     }
 });
 app.UseDefaultFiles();
-app.UseStaticFiles();
+// UI assets must revalidate after a local desktop update; preserve image caching separately.
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (new[] { ".html", ".js", ".css" }.Contains(Path.GetExtension(ctx.File.Name), StringComparer.OrdinalIgnoreCase))
+        {
+            ctx.Context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            ctx.Context.Response.Headers.Pragma = "no-cache";
+            ctx.Context.Response.Headers.Expires = "0";
+        }
+    }
+});
 
 byte[] RelayScript()
 {
@@ -64,6 +76,23 @@ byte[] RelayScript()
         ?? throw new InvalidOperationException("发布程序中缺少 Unity 桥接脚本，请重新安装程序。");
     using var output = new MemoryStream(); stream.CopyTo(output); return output.ToArray();
 }
+byte[] BridgeResource(string name)
+{
+    using var stream = typeof(Program).Assembly.GetManifestResourceStream("BoothLens.Unity.Package." + name.Replace('/', '.'))
+        ?? throw new InvalidOperationException("发布程序中缺少嵌入式 Unity 包，请重新安装程序。");
+    using var output = new MemoryStream(); stream.CopyTo(output); return output.ToArray();
+}
+var bridgePackages = new UnityBridgePackages(
+    new[] { "package.json", "Editor/BoothRelay.cs", "Editor/BoothLens.Editor.asmdef" }.ToDictionary(name => name, BridgeResource),
+    new[] {
+        // git history: cb82b06 (current legacy resource), 9592d19 (original release).
+        "d134e134758a15f9715ae179e584474bd8f4b4cdf1e6c1ae3d7ac0c72cf84681",
+        "ccfb502c2f3b75ad1e67877773d142057323f767b62fd5a573042a44480a7085",
+        Convert.ToHexString(SHA256.HashData(RelayScript()))
+    }, editors.List);
+app.MapGet("/api/unity/bridge", (string projectPath) => bridgePackages.GetStatus(projectPath));
+app.MapPost("/api/unity/bridge/install", (BridgePackageRequest body) => bridgePackages.Install(body.ProjectPath ?? ""));
+app.MapPost("/api/unity/bridge/uninstall", (BridgePackageRequest body) => bridgePackages.Uninstall(body.ProjectPath ?? ""));
 app.MapGet("/unity/BoothRelay.cs", () => Results.File(RelayScript(), "application/octet-stream", "BoothRelay.cs"));
 app.MapGet("/unity/BoothRelay.zip", () =>
 {
@@ -130,6 +159,7 @@ app.MapPost("/api/resources/confirm", async (ConfirmRequest body, CancellationTo
     if (body.Id > 0) await catalog.Add(body.Id.ToString(), ct);
     return local.Confirm(body.Path ?? "", body.Id);
 });
+app.MapPost("/api/resources/members", (RetryRequest body) => local.RefreshMembers(body.Path ?? ""));
 app.MapPost("/api/resources/retry", (RetryRequest body) => local.Retry(body.Path ?? ""));
 app.MapPost("/api/resources/unbind", (RetryRequest body) => local.Unbind(body.Path ?? ""));
 app.MapPost("/api/resources/import", (ResourceImportRequest body) =>
@@ -166,7 +196,8 @@ app.MapPost("/api/settings", (SettingsRequest body) =>
     return new { hasCookie = !string.IsNullOrEmpty(booth.CookieHeader), unityTargetMode = "open-editors" };
 });
 app.MapPost("/api/import", (ImportRequest body) => importer.Import(body.Path ?? "", body.Mode, editors.Resolve(body.ProjectId).ProjectPath));
-app.MapGet("/api/unity/projects", () => new { projects = editors.List(), message = "仅显示已打开且安装新版桥接脚本的 Unity 编辑器；不使用设置中保存的历史工程路径。" });
+app.MapGet("/api/unity/projects", () => new { projects = editors.List(), message = "仅列出已打开且连接组件在线的 Unity 编辑器；首次使用请点击“一键连接 Unity”安装组件。" });
+app.MapGet("/api/unity/bridge/projects", () => UnityProjectDiscovery.List(editors));
 app.MapPost("/api/unity/reset-pending", (ResetPendingRequest body) =>
     importer.ResetPending(editors.ResolveForRecovery(body.ProjectId)));
 app.MapGet("/api/jobs", () =>
@@ -218,3 +249,4 @@ record LinkRequest(string? Path, string? Input);
 record SettingsRequest(string? CookieHeader);
 record ImportRequest(string? Path, string? Mode, string? ProjectId);
 record ResetPendingRequest(string? ProjectId);
+record BridgePackageRequest(string? ProjectPath);

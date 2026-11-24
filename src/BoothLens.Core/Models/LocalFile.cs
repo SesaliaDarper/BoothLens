@@ -42,6 +42,7 @@ public sealed class LocalFile
 public sealed class ImportJob
 {
     public long Id { get; set; }
+    /// <summary>Confirmed product identity at submission; null for a local-only import.</summary>
     public long? ItemId { get; set; }
     public string? LocalPath { get; set; }
     /// <summary>copy | unitypackage | uri</summary>

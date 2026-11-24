@@ -42,6 +42,9 @@ internal sealed class LauncherWindow : Form
     readonly bool smoke;
     readonly WebView2 web = new() { Dock = DockStyle.Fill, Visible = false };
     readonly Panel diagnostics = new() { Dock = DockStyle.Fill };
+    readonly MenuStrip desktopBar = new() { Dock = DockStyle.Top, AutoSize = false, Height = 46, Padding = new Padding(14, 6, 12, 6), ShowItemToolTips = true };
+    readonly ToolStripMenuItem desktopStatus = new() { Text = "● 连接中", Alignment = ToolStripItemAlignment.Right, Enabled = false };
+    bool desktopDark;
     bool webReady, webStarting;
     Process? child;
     string? launchToken;
@@ -72,14 +75,17 @@ internal sealed class LauncherWindow : Form
         body.Controls.Add(log); body.Controls.Add(detail);
         diagnostics.Controls.Add(body); diagnostics.Controls.Add(actions); diagnostics.Controls.Add(header);
         Controls.Add(diagnostics); Controls.Add(web);
-        var bar = new MenuStrip { Dock = DockStyle.Top };
-        bar.Items.Add("主界面", null, async (_, _) => await ShowApp());
-        bar.Items.Add("重新加载", null, (_, _) => { if (webReady) web.Reload(); });
-        bar.Items.Add("服务与日志", null, (_, _) => { web.Visible = false; diagnostics.Visible = true; diagnostics.BringToFront(); });
-        bar.Items.Add("在浏览器打开", null, (_, _) => ExternalBrowser());
-        bar.Items.Add("收起到托盘", null, (_, _) => Hide());
-        bar.Items.Add("退出", null, async (_, _) => await ExitAsync(true));
-        MainMenuStrip = bar; Controls.Add(bar);
+        var brand = new ToolStripMenuItem("BoothLens", Icon.ToBitmap(), async (_, _) => await ShowApp()) { Font = new Font(Font, FontStyle.Bold), Margin = new Padding(0, 0, 16, 0), ToolTipText = "返回工作台" };
+        var home = new ToolStripMenuItem("工作台", null, async (_, _) => await ShowApp()) { ToolTipText = "显示资源管理界面" };
+        var reload = new ToolStripMenuItem("刷新", null, (_, _) => { if (webReady) web.Reload(); }) { ShortcutKeys = Keys.Control | Keys.R, ToolTipText = "重新加载界面 · Ctrl+R" };
+        var more = new ToolStripMenuItem("更多  ▾") { Alignment = ToolStripItemAlignment.Right };
+        more.DropDownItems.Add("服务与日志", null, (_, _) => { web.Visible = false; diagnostics.Visible = true; diagnostics.BringToFront(); });
+        more.DropDownItems.Add("在浏览器中打开", null, (_, _) => ExternalBrowser());
+        more.DropDownItems.Add(new ToolStripSeparator());
+        more.DropDownItems.Add("收起到系统托盘", null, (_, _) => Hide());
+        more.DropDownItems.Add("退出 BoothLens", null, async (_, _) => await ExitAsync(true));
+        desktopBar.Items.AddRange(new ToolStripItem[] { brand, home, reload, more, desktopStatus });
+        MainMenuStrip = desktopBar; Controls.Add(desktopBar); ApplyDesktopTheme(false);
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开 BoothLens", null, (_, _) => OpenBrowser());
         menu.Items.Add("显示软件窗口", null, (_, _) => Reveal());
@@ -100,8 +106,14 @@ internal sealed class LauncherWindow : Form
             if (smoke)
             {
                 await Task.Delay(2500);
+                if (webReady) { await web.CoreWebView2.ExecuteScriptAsync("document.querySelector('#theme-toggle').click()"); await Task.Delay(250); }
+                var themeSynced = webReady && desktopDark == (await web.CoreWebView2.ExecuteScriptAsync("document.documentElement.dataset.theme==='dark'") == "true");
+                var toolbarImage = Environment.GetEnvironmentVariable("BOOTHLENS_TOOLBAR_SCREENSHOT");
+                if (!string.IsNullOrWhiteSpace(toolbarImage)) { using var bitmap = new Bitmap(desktopBar.Width, desktopBar.Height); desktopBar.DrawToBitmap(bitmap, desktopBar.ClientRectangle); bitmap.Save(toolbarImage); }
                 var pageTitle = webReady ? await web.CoreWebView2.ExecuteScriptAsync("document.title") : "";
                 var rendered = webReady ? await web.CoreWebView2.ExecuteScriptAsync("!!document.querySelector('#view-library') && !!document.querySelector('#theme-toggle')") : "false";
+                var uiVersion = webReady ? await web.CoreWebView2.ExecuteScriptAsync("document.documentElement.dataset.uiVersion || ''") : "";
+                var unconfirmedImportEnabled = webReady && await web.CoreWebView2.ExecuteScriptAsync("(()=>{const f={path:'X:/Test/Unconfirmed',name:'未确认资源验证',kind:'folder',status:'review',recognitionState:'review',itemId:null,members:[{path:'X:/Test/Unconfirmed/Li-ne_Neko Tied Bob hair.unitypackage',kind:'unitypackage',name:'Li-ne_Neko Tied Bob hair.unitypackage'}],candidates:[{id:12345,name:'待确认候选'}]};renderResourceDetail(f,null);document.querySelector('#detail-dialog').showModal();const b=[...document.querySelectorAll('#detail-body button')].find(x=>x.textContent==='导入');return !!b&&!b.disabled&&!document.querySelector('#detail-body').textContent.includes('确认或指定商品后可导入')})()") == "true";
                 if (webReady)
                 {
                     foreach (var name in new[] { "BoothRelay.cs", "BoothRelay.zip" })
@@ -118,10 +130,26 @@ internal sealed class LauncherWindow : Form
                 var hiddenToTray = !Visible;
                 await Task.Delay(1500);
                 var report = Environment.GetEnvironmentVariable("BOOTHLENS_LAUNCHER_TEST_REPORT");
-                if (!string.IsNullOrWhiteSpace(report)) File.WriteAllText(report, JsonSerializer.Serialize(new { online, ownsServer = child != null && !child.HasExited, activations, hiddenToTray, address, webReady, pageTitle, rendered, downloads = testDownloads.Count }));
+                if (!string.IsNullOrWhiteSpace(report)) File.WriteAllText(report, JsonSerializer.Serialize(new { online, ownsServer = child != null && !child.HasExited, activations, hiddenToTray, address, webReady, pageTitle, rendered, uiVersion, unconfirmedImportEnabled, themeSynced, downloads = testDownloads.Count }));
                 await ExitAsync(false);
             }
         };
+    }
+    void ApplyDesktopTheme(bool dark)
+    {
+        desktopDark = dark;
+        var background = dark ? Color.FromArgb(26, 29, 44) : Color.FromArgb(250, 249, 255);
+        var foreground = dark ? Color.FromArgb(225, 227, 244) : Color.FromArgb(53, 49, 83);
+        var selected = dark ? Color.FromArgb(55, 48, 86) : Color.FromArgb(234, 229, 255);
+        var border = dark ? Color.FromArgb(52, 57, 78) : Color.FromArgb(228, 224, 241);
+        desktopBar.BackColor = background; desktopBar.ForeColor = foreground;
+        desktopBar.Renderer = new DesktopBarRenderer(background, foreground, selected, border);
+        foreach (ToolStripItem item in desktopBar.Items)
+        {
+            item.ForeColor = foreground;
+            if (item is ToolStripMenuItem menu) { menu.DropDown.BackColor = background; menu.DropDown.ForeColor = foreground; }
+        }
+        desktopBar.Invalidate();
     }
     void Reveal() { Show(); WindowState = FormWindowState.Normal; Activate(); }
     void AppendLog(string? text)
@@ -150,6 +178,7 @@ internal sealed class LauncherWindow : Form
             : "已连接正在运行的 BoothLens，无需重复启动。退出本启动器不会关闭已有服务。"
             : "服务未就绪，请查看下方日志。点击“重新启动”重试；原有素材及索引保持不动。";
         tray.Text = ready ? "BoothLens · 运行中" : "BoothLens · 服务未连接";
+        desktopStatus.Text = ready ? "● 本地服务在线" : "● 服务未连接";
     }
     async Task RefreshHealth()
     {
@@ -215,6 +244,27 @@ internal sealed class LauncherWindow : Form
             var env = await CoreWebView2Environment.CreateAsync(null, profile);
             await web.EnsureCoreWebView2Async(env);
             var core = web.CoreWebView2;
+            // A persistent WebView profile can retain an older app.js after replacing the binaries.
+            // Clear only HTTP disk cache; keep the user's theme and other local preferences.
+            await core.Profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.DiskCache);
+            core.WebMessageReceived += (_, e) =>
+            {
+                if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var senderUri) || senderUri.GetLeftPart(UriPartial.Authority) != address) return;
+                try
+                {
+                    using var message = JsonDocument.Parse(e.WebMessageAsJson);
+                    if (!message.RootElement.TryGetProperty("type", out var type)) return;
+                    if (type.GetString() == "boothlens-theme" && message.RootElement.TryGetProperty("dark", out var dark) && dark.ValueKind is JsonValueKind.True or JsonValueKind.False) ApplyDesktopTheme(dark.GetBoolean());
+                    if (type.GetString() == "boothlens-pick-unity-project")
+                    {
+                        using var picker = new FolderBrowserDialog { Description = "选择 Unity 工程根目录（包含 Assets、Packages、ProjectSettings）", UseDescriptionForTitle = true, ShowNewFolderButton = false };
+                        if (picker.ShowDialog(this) == DialogResult.OK)
+                            core.PostWebMessageAsJson(JsonSerializer.Serialize(new { type = "boothlens-unity-project-picked", path = picker.SelectedPath }));
+                    }
+                }
+                catch (JsonException) { }
+            };
+            await core.AddScriptToExecuteOnDocumentCreatedAsync("document.addEventListener('DOMContentLoaded',()=>{const send=()=>window.chrome.webview.postMessage({type:'boothlens-theme',dark:document.documentElement.dataset.theme==='dark'});new MutationObserver(send).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});send();});");
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = true;
             core.Settings.AreDevToolsEnabled = smoke;
@@ -247,6 +297,8 @@ internal sealed class LauncherWindow : Form
             var success = await loaded.Task.WaitAsync(TimeSpan.FromSeconds(30));
             core.NavigationCompleted -= Navigated;
             if (!success) throw new IOException("桌面界面加载失败，请检查服务日志。");
+            var loadedUi = await core.ExecuteScriptAsync("document.documentElement.dataset.uiVersion || ''");
+            if (loadedUi != "\"local-import-v2\"") throw new IOException("服务界面版本与启动器不一致，请退出旧服务后重新打开；已保留日志，避免继续显示旧版导入限制。");
             webReady = true; diagnostics.Visible = false; web.Visible = true; web.BringToFront();
         }
         catch (WebView2RuntimeNotFoundException)

@@ -19,7 +19,7 @@ artifacts/
 *.db
 *.db-*
 *.log
-data/
+/data/
 qa-data/
 images/
 local-covers/

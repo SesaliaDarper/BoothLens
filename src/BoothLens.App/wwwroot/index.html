@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
   <script src="/connection.js" defer></script>
+  <script src="/bridge.js" defer></script>
 </head>
 <body>
   <svg class="svg-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -150,8 +151,11 @@
           <div class="page-head"><h1 id="settings-title">设置</h1></div>
           <div class="panel appearance-panel"><div class="panel-heading"><div><h2>外观</h2><p>主题保存在当前浏览器，跟随系统会自动响应系统外观。</p></div></div><label class="select-label" for="theme-choice">颜色主题<select id="theme-choice"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></div>
           <div class="panel settings-panel">
-            <div class="panel-heading"><div><h2>Unity 桥接</h2><p>安装到工程后，导入窗口会列出已打开的 Editor。</p></div></div>
+            <div class="panel-heading"><div><h2>Unity 连接组件</h2><p>一键安装到工程 Packages，无需下载或复制脚本，支持离线安装。</p></div></div>
+            <div class="row-actions"><button type="button" class="button primary" data-bridge-manage>一键连接 Unity</button></div><p class="field-note">每个工程只需安装一次；已有旧脚本会检查并备份迁移，等待 Unity 编译后即可连接。</p>
+            <details class="detail-fold"><summary>高级：旧版脚本下载</summary>
             <div class="bridge-help"><div class="row-actions"><a class="button subtle" href="/unity/BoothRelay.cs" download="BoothRelay.cs">下载桥接脚本</a><a class="button subtle" href="/unity/BoothRelay.zip" download="BoothRelay.zip">下载 ZIP</a><a class="button subtle" href="https://github.com/SesaliaDarper/BoothLens/releases/latest/download/BoothRelay.cs" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a></div><p class="bridge-download-status field-note" role="status" hidden></p><p class="field-note">放入 <code>Assets/Editor/BoothRelay.cs</code>（旧版直接替换），等待 Unity 编译完成，再刷新工程列表。</p></div>
+            </details>
             <form id="settings-form" class="stack-form settings-extra">
               <label for="cookie-header">BOOTH Cookie（仅本次会话，选填）</label><input id="cookie-header" type="password" autocomplete="off" placeholder="粘贴 Cookie 请求头原文；不保存到磁盘">
               <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary" id="save-settings">保存 Cookie</button></div>
@@ -162,6 +166,8 @@
       </main>
     </div>
   </div>
+
+  <dialog class="dialog" id="bridge-dialog" aria-labelledby="bridge-title"><div class="dialog-head"><h2 id="bridge-title">连接 Unity 工程</h2><button class="icon-button" type="button" data-close aria-label="关闭">×</button></div><div class="dialog-body stack-form"><p class="field-note">组件安装到 Packages/com.boothlens.bridge；不改商品素材或 Packages/manifest.json。安装前请退出 Play Mode，等待当前编译及导入结束。</p><label for="bridge-project-list">正在运行的工程</label><select id="bridge-project-list"><option value="">正在发现工程…</option></select><p class="field-note" id="bridge-discovery-message"></p><label for="bridge-project-path">Unity 工程根目录</label><div class="row-actions"><input id="bridge-project-path" class="row-main" placeholder="包含 Assets、Packages 和 ProjectSettings 的目录"><button type="button" class="button subtle" id="bridge-browse">选择工程文件夹</button></div><div class="row-actions"><button type="button" class="button subtle" id="bridge-inspect">检查状态</button><button type="button" class="button primary" id="bridge-install" disabled>安装连接组件</button><button type="button" class="button subtle" id="bridge-uninstall" disabled>卸载组件</button></div><div id="bridge-result" role="status" aria-live="polite"></div><p class="form-error" id="bridge-error" role="alert" hidden></p></div></dialog>
 
   <dialog class="dialog" id="categories-dialog" aria-labelledby="categories-title"><div class="dialog-head"><h2 id="categories-title">管理分类</h2><button class="icon-button" type="button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div><div class="dialog-body"><p class="field-note">移除仅影响资源库显示：该分类及子分类资源归入“未分类”。不删除磁盘文件夹，不解除商品绑定。可随时恢复。</p><div id="category-management" aria-live="polite"></div></div></dialog>
 
@@ -203,13 +209,13 @@
   <dialog class="dialog" id="import-dialog" aria-labelledby="import-title">
     <div class="dialog-head"><div><div class="section-kicker">Unity</div><h2 id="import-title">导入文件</h2></div><button type="button" class="icon-button" data-close aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
     <div class="dialog-body">
-      <p class="dialog-description">仅导入下方已选择的包文件，不批量复制容器里的说明、PSD 或贴图。导入记录中会显示结果。</p><p class="path-box" id="import-path"></p>
+      <p class="dialog-description" id="import-description">仅导入下方已选择的包文件，不批量复制容器里的说明、PSD 或贴图。导入记录中会显示结果。</p><p class="path-box" id="import-path"></p>
       <form id="import-form" class="stack-form">
-        <div class="project-heading"><label for="import-project">已打开的 Unity 工程</label><button type="button" class="button subtle" id="import-project-refresh">刷新工程列表</button></div>
+        <div class="project-heading"><label for="import-project">已打开的 Unity 工程</label><div class="row-actions"><button type="button" class="button subtle" data-bridge-manage>一键连接 Unity</button><button type="button" class="button subtle" id="import-project-refresh">刷新工程列表</button></div></div>
         <select id="import-project" required disabled><option value="">正在确认 Editor 心跳…</option></select>
         <div id="import-target" class="import-target" role="status" aria-live="polite">正在读取已打开的工程…</div>
         <p id="import-project-message" class="field-note" role="status"></p>
-        <div id="import-bridge-help" class="bridge-help" hidden><p>在目标工程安装桥接，等待 Unity 编译后刷新。</p><div class="row-actions"><a class="button subtle" href="/unity/BoothRelay.cs" download="BoothRelay.cs">下载桥接脚本</a><a class="button subtle" href="/unity/BoothRelay.zip" download="BoothRelay.zip">下载 ZIP</a><a class="button subtle" href="https://github.com/SesaliaDarper/BoothLens/releases/latest/download/BoothRelay.cs" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a></div><p class="bridge-download-status field-note" role="status" hidden></p><p class="field-note">脚本位置：<code>Assets/Editor/BoothRelay.cs</code></p></div>
+        <div id="import-bridge-help" class="bridge-help" hidden><p>点击“一键连接 Unity”，选择目标工程安装连接组件，等待 Unity 编译后刷新。</p><div class="row-actions"><a class="button subtle" href="/unity/BoothRelay.cs" download="BoothRelay.cs">下载桥接脚本</a><a class="button subtle" href="/unity/BoothRelay.zip" download="BoothRelay.zip">下载 ZIP</a><a class="button subtle" href="https://github.com/SesaliaDarper/BoothLens/releases/latest/download/BoothRelay.cs" target="_blank" rel="noopener noreferrer">GitHub 备用下载</a></div><p class="bridge-download-status field-note" role="status" hidden></p><p class="field-note">脚本位置：<code>Assets/Editor/BoothRelay.cs</code></p></div>
         <label for="import-mode">导入方式</label><select id="import-mode"><option value="auto">自动选择</option></select>
         <p class="form-error" role="alert" hidden></p><div class="form-actions"><button type="submit" class="button primary" id="import-submit" disabled>导入到所选 Editor</button></div>
       </form>

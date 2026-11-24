@@ -17,8 +17,11 @@ public sealed class Importer(AppPaths paths, ItemStore store)
         if (mode is not ("auto" or "copy" or "unitypackage" or "extract"))
             throw new ArgumentException("Unknown import mode.", nameof(mode));
         var local = store.GetLocalFile(path) ?? throw new ArgumentException("Source is not registered.");
-        if (local.ItemId is not long itemId || local.Status == "ignored" || store.Get(itemId) is not { } item)
-            throw new ArgumentException("Source must be bound to an existing item.");
+        if (local.Status == "ignored") throw new ArgumentException("Source is ignored; select a different source.");
+        // A candidate or stale link is not an import identity. Import does not change recognition.
+        var item = local.Status == "auto" && local.ItemId is long linkedId ? store.Get(linkedId) : null;
+        var itemId = item?.Id;
+        var sourceTitle = string.IsNullOrWhiteSpace(local.Name) ? Path.GetFileName(path) : local.Name;
         var id = store.CreateJob(itemId, path, mode);
         string? target = null;
         try
@@ -79,7 +82,8 @@ public sealed class Importer(AppPaths paths, ItemStore store)
             }
             else
             {
-                var relative = "Assets/_BoothItems/" + SafeName.FolderName(itemId, item.Title) + "__job" + id;
+                var folder = item != null ? SafeName.FolderName(item.Id, item.Title) : "local_" + SafeName.Clean(sourceTitle);
+                var relative = "Assets/_BoothItems/" + folder + "__job" + id;
                 target = Path.Combine(project, relative.Replace('/', Path.DirectorySeparatorChar));
                 EnsureDirectory(Path.GetDirectoryName(target)!);
                 if (File.Exists(target) || Directory.Exists(target) || File.Exists(target + ".meta"))

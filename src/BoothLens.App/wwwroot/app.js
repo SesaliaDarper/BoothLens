@@ -10,6 +10,7 @@ const state = {
   cache: new Map(), requests: { library: 0, files: 0 }
 };
 const titles = { library: '资源库', files: '扫描整理', catalog: '已保存商品', discover: 'BOOTH 搜索', jobs: '导入记录', settings: '设置' };
+document.documentElement.dataset.uiVersion = 'local-import-v2';
 const statusNames = { bound: '已绑定', auto: '已匹配', manual: '手动绑定', confirmed: '已确认', review: '待确认', unknown: '未匹配', failed: '识别失败', error: '识别失败', running: '识别中', pending: '待识别', ignored: '已忽略' };
 function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
 function button(text, fn, cls = 'button subtle') { const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', () => Promise.resolve().then(fn).catch(noticeError)); return b; }
@@ -249,6 +250,7 @@ function resourceCard(f, view) {
 function section(root, title) { const n = el('section', 'detail-section'); n.append(el('h3', '', title)); root.append(n); return n; }
 function openBind(f) { state.bindPath = f.path; $('#bind-path').textContent = f.path; $('#bind-input').value = f.itemId ?? ''; if (!$('#bind-dialog').open) $('#bind-dialog').showModal(); }
 function importable(f) { return /\.(unitypackage|zip|7z|rar|tar|tgz|gz)$/i.test(f.path || f.name || ''); }
+function folderSource(f) { return ['folder', 'directory', 'dir'].includes(String(f.kind || '').toLowerCase()); }
 function packageChoices(f) { const members = f.members || []; const candidates = importable(f) ? [f, ...members] : members; return [...new Map(candidates.filter(importable).map(m => [m.path, m])).values()]; }
 async function resourceDetail(f) {
   const dialog = $('#detail-dialog'); state.detailPath = f.path; const version = ++state.detailVersion;
@@ -283,23 +285,35 @@ function renderResourceDetail(f, item) {
   if (item?.canonicalUrl && /^https?:\/\//i.test(item.canonicalUrl)) { const a = el('a', 'button subtle', '商品页面'); a.href = item.canonicalUrl; a.target = '_blank'; a.rel = 'noopener noreferrer'; actions.append(a); }
   meta.append(actions); top.append(cover(item || f, isBound(f), f), meta); root.append(top);
   if (f.error) root.append(el('p', 'error', f.error));
+  const choices = packageChoices(f);
+  const imports = section(root, '本地资源导入');
+  const refreshPackages = button('重新读取本地包', async () => {
+    refreshPackages.disabled = true;
+    try { const result = await api('/api/resources/members', { path: f.path }); await refreshResources(); await resourceDetail(resourceFrom(result, f)); notice('本地包列表已刷新；候选、商品绑定和识别状态保持不变。'); }
+    finally { refreshPackages.disabled = false; }
+  });
+  refreshPackages.disabled = f.status === 'ignored'; imports.append(refreshPackages);
+  if (folderSource(f)) {
+    const copy = button('复制原始文件夹到 Unity…', () => openImport(f, f, true)); copy.disabled = f.status === 'ignored'; imports.append(copy);
+    imports.append(el('p', 'field-note', '原始模型、贴图、Prefab 或源码可复制到 Assets/_BoothItems。含 Unity 包时优先选择下方包导入；整目录复制不会自动展开其中的压缩包。'));
+  }
+  if (!choices.length) imports.append(el('p', 'field-note', '当前索引未记录可导入包。可先重新读取本地包，或复制原始文件夹；无需先确认 BOOTH 商品。'));
+  if (choices.length) {
+    const packages = section(root, `导入包 · ${choices.length}`);
+    for (const member of choices) {
+      const row = el('div', 'row'), main = el('div', 'row-main'); main.append(el('strong', '', member.name || member.path));
+      const supported = /\.(unitypackage|zip)$/i.test(member.path), b = button(supported ? '导入' : '先解压', () => openImport(f, member)); b.disabled = f.status === 'ignored' || !supported;
+      row.append(main, button('打开位置', () => revealResource(member.path)), b); packages.append(row);
+    }
+    if (!isBound(f)) packages.append(el('p', 'field-note', '可直接导入本地包，无需先确认商品。导入不会自动确认候选或改变商品绑定。'));
+  }
   if (f.candidates?.length) {
-    const candidates = section(root, `候选商品 · ${f.candidates.length}`);
+    const candidates = detailFold(root, `候选商品 · ${f.candidates.length}（可稍后确认，不影响导入）`);
     for (const candidate of f.candidates) {
       const row = el('div', 'row candidate-row'), main = el('div', 'row-main'); main.append(el('strong', '', candidate.name || `BOOTH ${candidate.id}`), el('p', 'secondary', [candidate.brand, candidate.id, candidate.price == null ? '' : '¥' + candidate.price].filter(Boolean).join(' · ')));
       const confirmButton = button('确认', async () => { confirmButton.disabled = true; try { const result = await api('/api/resources/confirm', { path: f.path, id: candidate.id }); notice('已确认资源。'); await refreshResources(); await resourceDetail(resourceFrom(result, f)); } finally { confirmButton.disabled = false; } }, 'button primary');
       row.append(main, confirmButton); candidates.append(row);
     }
-  }
-  const choices = packageChoices(f);
-  if (choices.length) {
-    const packages = section(root, `导入包 · ${choices.length}`);
-    for (const member of choices) {
-      const row = el('div', 'row'), main = el('div', 'row-main'); main.append(el('strong', '', member.name || member.path));
-      const supported = /\.(unitypackage|zip)$/i.test(member.path), b = button(supported ? '导入' : '先解压', () => openImport(f, member)); b.disabled = !isBound(f) || !supported;
-      row.append(main, button('打开位置', () => revealResource(member.path)), b); packages.append(row);
-    }
-    if (!isBound(f)) packages.append(el('p', 'field-note', '确认或指定商品后可导入。'));
   }
   const info = detailFold(root, '路径与识别信息'); info.append(el('p', 'path', f.path));
   if (resourceRoot(f)) info.append(el('p', 'path', `根目录：${resourceRoot(f)}`));
@@ -351,20 +365,22 @@ async function retryResource(f) {
   try { const result = await api('/api/resources/retry', { path: f.path }); notice(isBound(f) ? '已标记刷新。下次主动扫描时重新读取成员与本地配图；手动绑定保留。' : '已清除候选缓存。下次主动扫描此资源时将重新在线识别；本次操作不会启动扫描。'); await refreshResources(); if ($('#detail-dialog').open && state.detailPath === f.path) await resourceDetail(resourceFrom(result, f)); await checkScan(); }
   catch (e) { notice(`重试识别失败：${e.message}。可手动指定商品，或在扫描页重新扫描该资源。`, true); }
 }
-async function openImport(f, member) {
-  if (!importable(member)) throw Error('请选择 .unitypackage 或归档文件。');
-  if (!/\.(unitypackage|zip)$/i.test(member.path)) throw Error('此归档需先手动解压，然后重新扫描其文件夹。');
+async function openImport(f, member, copyFolder = false) {
+  if (copyFolder ? !folderSource(member) : !importable(member)) throw Error('请选择本地资源文件夹或包文件。');
+  if (!copyFolder && !/\.(unitypackage|zip)$/i.test(member.path)) throw Error('此归档需先手动解压，然后重新扫描其文件夹。');
+  $('#import-description').textContent = copyFolder ? '将所选原始文件夹复制到 Assets/_BoothItems 的独立新目录，包含其中的源码和素材；压缩包不会自动展开。不会确认商品或改变绑定。' : '仅导入下方已选择的包文件，不批量复制容器里的说明、PSD 或贴图。导入记录中会显示结果。';
   state.importPath = f.path; state.importMemberPath = member.path; $('#import-path').textContent = member.path;
   $('.form-error', $('#import-form')).hidden = true;
   const mode = $('#import-mode'); mode.replaceChildren();
   const native = /\.unitypackage$/i.test(member.path);
-  const option = el('option', '', native ? '通过 Unity 导入 .unitypackage' : '自动识别 ZIP 内的 Unity 包（推荐）');
-  option.value = native ? 'unitypackage' : 'auto'; mode.append(option);
-  if (!native) { const extract = el('option', '', '明确解压普通 ZIP 到 Unity 工程（需再次确认）'); extract.value = 'extract'; mode.append(extract); }
+  const option = el('option', '', copyFolder ? '复制原始文件夹到 Assets/_BoothItems' : native ? '通过 Unity 导入 .unitypackage' : '自动识别 ZIP 内的 Unity 包（推荐）');
+  option.value = copyFolder ? 'copy' : native ? 'unitypackage' : 'auto'; mode.append(option);
+  if (!native && !copyFolder) { const extract = el('option', '', '明确解压普通 ZIP 到 Unity 工程（需再次确认）'); extract.value = 'extract'; mode.append(extract); }
   $('#import-project').replaceChildren();
   if (!$('#import-dialog').open) $('#import-dialog').showModal();
   await loadUnityProjects();
 }
+document.addEventListener('boothlens-unity-connected', () => { if ($('#import-dialog').open) loadUnityProjects().catch(noticeError); });
 function selectedUnityProject() { return state.projects.find(p => String(p.id) === $('#import-project').value); }
 function updateImportTarget() {
   const target = $('#import-target'), project = selectedUnityProject(); target.replaceChildren();
@@ -519,6 +535,7 @@ onForm('#import-form', async () => {
   const project = selectedUnityProject(), mode = $('#import-mode').value;
   if (state.projectsLoading || !project || !project.bridgeReady) throw Error('请先刷新工程列表并选择已打开且桥接就绪的 Editor。');
   if (project.busy) throw Error('所选 Editor 正忙，请稍后刷新再导入。');
+  if (mode === 'copy' && !confirm(`复制整个原始文件夹到工程“${project.name || project.projectPath}”？\n${state.importMemberPath}\n\n目标：${project.projectPath}\\Assets\\_BoothItems（新目录）\n包含子目录与源码，不会自动展开内部压缩包，不改变商品识别或绑定。`)) return;
   if (mode === 'extract' && !confirm(`将所选 ZIP 解压到工程“${project.name || project.projectPath}”的 Assets/_BoothItems 新目录，是否继续？\n${project.projectPath}`)) return;
   state.importSubmitting = true; $('#import-project').disabled = true; $('#import-project-refresh').disabled = true; updateImportTarget();
   try { const job = await api('/api/resources/import', { path: state.importPath, memberPath: state.importMemberPath, mode, projectId: project.id }); $('#import-dialog').close(); notice(`任务 #${job.id}：${job.message || job.state}`, job.state === 'failed'); }

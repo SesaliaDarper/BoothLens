@@ -68,7 +68,7 @@ library.Start(root,"library",true); await Wait();
 Check("ordinary online scan does not restore cleared manual binding", library.Get(salt)!.ItemId == null);
 library.Unbind(exact); library.Start(root,"library",true); await Wait();
 Check("ordinary scan does not restore cleared numeric binding", library.Get(exact)!.ItemId == null);
-try { library.PrepareImport(salt,source); throw new Exception("unbound import accepted"); } catch(ArgumentException) { Console.WriteLine("PASS unbound import blocked"); }
+Check("unbound member import is registered without product identity", library.PrepareImport(salt,source) == source && store.GetLocalFile(source)?.ItemId == null && library.Get(salt)!.RecognitionState == "unknown");
 library.Confirm(salt,2345678);
 Check("new manual binding works after unbind", library.Get(salt)!.ItemId == 2345678);
 library.Retry(exact); library.Start(root,"library",true); await Wait();
